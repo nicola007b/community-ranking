@@ -7,6 +7,19 @@ import java.util.Random;
 import java.util.StringTokenizer;
 
 public class TruncatedNormalRandomGenerator {
+	private static final double[] x;
+	private static final double[] yu;
+	private static final int[] ncell;
+
+	private static final String xFile = ".dat/tnx.txt";
+	private static final String yuFile = ".dat/tnyu.txt";
+	private static final String ncellFile = ".dat/tnncell.txt";
+
+	static {
+		x = readDoubles(xFile);
+		yu = readDoubles(yuFile);
+		ncell = readIntegers(ncellFile);
+	}
 
 	private static double[] readDoubles(final String file) {
 		try {
@@ -66,17 +79,9 @@ public class TruncatedNormalRandomGenerator {
 		}
 	}
 
-	private final double[] x;
-	private final double[] yu;
-	private final int[] ncell;
 	private final Random r;
 
-	public TruncatedNormalRandomGenerator(String xFile, String yuFile,
-			String ncellFile, final long seed) {
-
-		x = readDoubles(xFile);
-		yu = readDoubles(yuFile);
-		ncell = readIntegers(ncellFile);
+	public TruncatedNormalRandomGenerator(final long seed) {
 		r = new Random(seed);
 	}
 
@@ -139,9 +144,6 @@ public class TruncatedNormalRandomGenerator {
 
 			// Sample integer between ka and kb
 			final int k = r.nextInt(kSup - kInf + 1) + kInf;
-
-			if (k == 4001)
-				System.out.println();
 
 			if (k == N + 1) {
 
@@ -228,7 +230,7 @@ public class TruncatedNormalRandomGenerator {
 	/**
 	 * Pseudorandom numbers from a truncated (normalized) Gaussian distribution
 	 * (i.e. rtnorm(a,b,0,1))
-	 *
+	 * 
 	 * @param inf
 	 * @param sup
 	 * @return

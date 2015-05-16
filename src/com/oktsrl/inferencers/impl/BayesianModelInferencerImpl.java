@@ -2,7 +2,6 @@ package com.oktsrl.inferencers.impl;
 
 import java.util.Random;
 
-import com.oktsrl.BuildMatrixFactoryOKT;
 import com.oktsrl.Indices;
 import com.oktsrl.MatrixFactoryOKT;
 import com.oktsrl.MatrixOKT;
@@ -10,7 +9,6 @@ import com.oktsrl.Model;
 import com.oktsrl.Summation;
 import com.oktsrl.inferencers.BayesianInferencer;
 import com.oktsrl.models.impl.GBModelImpl;
-import com.oktsrl.utils.BidimensionalIndex;
 import com.oktsrl.utils.EdgeType;
 import com.oktsrl.utils.Settings;
 import com.oktsrl.utils.TruncatedNormalRandomGenerator;
@@ -30,7 +28,7 @@ import com.oktsrl.utils.TruncatedNormalRandomGenerator;
 /**
  * TODO che fa transpose(true)? Perch� il true? Qual � la differenza con
  * transopose() senza parametri?
- *
+ * 
  * TODO come funziona il factory.randn(num_feat, 1)?
  */
 public class BayesianModelInferencerImpl implements BayesianInferencer {
@@ -60,7 +58,6 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 	protected MatrixOKT socialNetwork;
 	protected MatrixOKT preferenceMatrix;
 	protected MatrixOKT unknownLinks;
-	protected BidimensionalIndex index;
 
 	protected MatrixOKT Theta, Omega, Y;
 	protected MatrixOKT Ze;
@@ -82,6 +79,7 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 	protected int maxEpoch;
 	protected int epochHistorySize; // numero di epoch da prendere in
 	// considerazione
+	protected int epochTopSize; // dimensionamente ultimi epoch validi
 
 	protected long startInferenceTime;
 
@@ -102,15 +100,11 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 		nTrials = settings.getInt("nTrials", 2);
 		maxEpoch = settings.getInt("maxEpoch", 20);
 		epochHistorySize = settings.getInt("epochHistorySize", 10);
-
-		final String xFile = settings.getString("xFile");
-		final String yuFile = settings.getString("yuFile");
-		final String ncellFile = settings.getString("ncellFile");
+		epochTopSize = settings.getInt("epochHistorySize", 10);
 
 		final int seed = settings.getInt("seed", 101);
 
-		tnrg = new TruncatedNormalRandomGenerator(xFile, yuFile, ncellFile,
-				seed);
+		tnrg = new TruncatedNormalRandomGenerator(seed);
 		rg = new Random(seed);
 	}
 
@@ -182,17 +176,10 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 		}
 	}
 
-	
 	public Model runInference() {
+		factory = socialNetwork.getFactory();
 		nUsers = socialNetwork.rowsCount();
 		nItems = preferenceMatrix.columnsCount();
-
-		if (nUsers < 240)
-			factory = BuildMatrixFactoryOKT
-					.getInstance(BuildMatrixFactoryOKT.BLAS);
-		else
-			factory = BuildMatrixFactoryOKT
-					.getInstance(BuildMatrixFactoryOKT.UJMP);
 
 		initializeHyperParams();
 		initializeParams();
@@ -221,7 +208,7 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 				samplingOmega();
 			}
 
-			final int pos = epoch % epochHistorySize;
+			final int pos = epoch % epochTopSize;
 
 			ThetaAll[pos] = Theta.getCopy();
 			OmegaAll[pos] = Omega.getCopy();
@@ -231,7 +218,7 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 		log("\nGenerazione modello completata: " + "tempo richiesto %s",
 				timeToString(time));
 
-		return new GBModelImpl(ThetaAll, OmegaAll, index, meanRating);
+		return new GBModelImpl(ThetaAll, OmegaAll, meanRating);
 	}
 
 	/**
@@ -252,19 +239,18 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 
 		final Summation summation = factory.getSummation();
 		summation.add(W0.inverse(), Sx.mulMe(n));
-
-		summation.add(mu0MinusxAvg.mul(mu0MinusxAvg.transpose(true)).mulMe(
+		summation.add(mu0MinusxAvg.mulMe(mu0MinusxAvg.transpose(true)).mulMe(
 				n * beta0 / beta0star));
 
 		final MatrixOKT W0star = summation.getResult().inverse();
-		final MatrixOKT mu0star = mu0.mul(beta0).sumMe(xAvg.mul(n))
-				.divMe(beta0star);
+		final MatrixOKT mu0star = mu0.mul(beta0).sumMe(xAvg.mul(n)).divMe(
+				beta0star);
 
 		final MatrixOKT sigma = factory.wishart(W0star, ni0star, null);
 		final MatrixOKT lam = factory.cholesky(sigma.mul(beta0star).inverse())
 				.transpose(true);
-
-		final MatrixOKT mu = lam.mul(factory.randn(nFactors, 1)).sumMe(mu0star);
+		final MatrixOKT mu = lam.mulMe(factory.randn(nFactors, 1)).sumMe(
+				mu0star);
 
 		return new MatrixOKT[] { mu, sigma };
 	}
@@ -304,7 +290,7 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 						continue;
 
 					muSummation
-					.add(thetaUSq.mul(Omega.rows(j).transpose(true)));
+							.add(thetaUSq.mul(Omega.rows(j).transpose(true)));
 					muSummation.add(thetaU.mul(Zr[u].get(i, j)));
 				}
 
@@ -322,8 +308,8 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 			final MatrixOKT lam = factory.cholesky(sigmaStarOmega).transpose(
 					true);
 
-			Omega.putRow(i,
-					lam.mul(factory.randn(nFactors, 1)).sumMe(muStarOmega));
+			Omega.putRow(i, lam.mul(factory.randn(nFactors, 1)).sumMe(
+					muStarOmega));
 		}
 	}
 
@@ -428,8 +414,8 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 			final MatrixOKT lam = factory.cholesky(simgaStarTheta).transpose(
 					true);
 
-			Theta.putRow(u,
-					lam.mul(factory.randn(nFactors, 1)).sumMe(muStarTheta));
+			Theta.putRow(u, lam.mul(factory.randn(nFactors, 1)).sumMe(
+					muStarTheta));
 		}
 	}
 
@@ -525,31 +511,27 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 
 					final double avg = thetaUT.dot(omegaIT.sub(Omega.rows(j))
 							.transpose());
-					Zr[u].set(
-							i,
-							j,
+					Zr[u].set(i, j,
 							preferenceMatrix.get(u, i) > preferenceMatrix.get(
 									u, j) ? tnrg.next(0,
-											Double.POSITIVE_INFINITY, avg, 1) : tnrg
-											.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
+									Double.POSITIVE_INFINITY, avg, 1) : tnrg
+									.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
 				}
 			}
 		}
 	}
 
-	public void setIndex(BidimensionalIndex index) {
-		this.index = index;
-	}
-
-	
+	@Override
 	public void setSocialFoldMatrix(final MatrixOKT matrix) {
 		unknownLinks = matrix;
 	}
 
+	@Override
 	public void setSocialNetworkMatrix(final MatrixOKT matrix) {
 		socialNetwork = matrix;
 	}
 
+	@Override
 	public void setTrainingMatrix(final MatrixOKT matrix) {
 		preferenceMatrix = matrix;
 	}

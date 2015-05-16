@@ -58,10 +58,10 @@ public class DatasetReader {
 
 		if (nUsers < 240)
 			factory = BuildMatrixFactoryOKT
-			.getInstance(BuildMatrixFactoryOKT.BLAS);
+					.getInstance(BuildMatrixFactoryOKT.BLAS);
 		else
 			factory = BuildMatrixFactoryOKT
-			.getInstance(BuildMatrixFactoryOKT.UJMP);
+					.getInstance(BuildMatrixFactoryOKT.UJMP);
 
 		final MatrixOKT socialNetwork = factory.sparse(nUsers, nUsers);
 		int nnz = 0;
@@ -95,7 +95,7 @@ public class DatasetReader {
 			for (final Action action : actions)
 				preferenceMatrix.set(newIndex.rowIndex(oldIndex.rowId(action
 						.getUser())), newIndex.columnIndex(oldIndex
-								.columnId(action.getItem())), action.getRating());
+						.columnId(action.getItem())), action.getRating());
 
 		int count = nnz << 1;
 		final MatrixOKT unknownLinks = factory.sparse(nUsers, nUsers);
@@ -110,8 +110,6 @@ public class DatasetReader {
 				count--;
 			}
 		}
-
-		socialNetwork.
 
 		return new MatrixOKT[] { socialNetwork, preferenceMatrix, unknownLinks };
 	}
@@ -169,20 +167,20 @@ public class DatasetReader {
 				"netSkipFirstLine").equalsIgnoreCase("true");
 		final boolean ratSkipFirstLine = properties.getProperty(
 				"ratSkipFirstLine").equalsIgnoreCase("true");
-		final int netSource = Integer.parseInt(
-				properties.getProperty("netSourceIndex"), 10);
-		final int netDestination = Integer.parseInt(
-				properties.getProperty("netDestinationIndex"), 10);
-		final int netMinEdges = Integer.parseInt(
-				properties.getProperty("netMinEdges"), 10);
-		final int ratUser = Integer.parseInt(
-				properties.getProperty("ratUserIndex"), 10);
-		final int ratItem = Integer.parseInt(
-				properties.getProperty("ratItemIndex"), 10);
-		final int ratRating = Integer.parseInt(
-				properties.getProperty("ratRatingIndex"), 10);
-		final int ratMinRatings = Integer.parseInt(
-				properties.getProperty("ratMinRatings"), 10);
+		final int netSource = Integer.parseInt(properties
+				.getProperty("netSourceIndex"), 10);
+		final int netDestination = Integer.parseInt(properties
+				.getProperty("netDestinationIndex"), 10);
+		final int netMinEdges = Integer.parseInt(properties
+				.getProperty("netMinEdges"), 10);
+		final int ratUser = Integer.parseInt(properties
+				.getProperty("ratUserIndex"), 10);
+		final int ratItem = Integer.parseInt(properties
+				.getProperty("ratItemIndex"), 10);
+		final int ratRating = Integer.parseInt(properties
+				.getProperty("ratRatingIndex"), 10);
+		final int ratMinRatings = Integer.parseInt(properties
+				.getProperty("ratMinRatings"), 10);
 
 		final String netOut = properties.getProperty("netOut");
 		final String ratOut = properties.getProperty("ratOut");
@@ -208,8 +206,8 @@ public class DatasetReader {
 		System.out.println("nItems: " + index.nColumns());
 
 		System.out.println("filtering...");
-		filterMatrices(links, ratings, netMinEdges, ratMinRatings,
-				index.nRows());
+		filterMatrices(links, ratings, netMinEdges, ratMinRatings, index
+				.nRows());
 
 		System.out.println("building index...");
 		final BidimensionalIndex newIndex = buildFinalIdex(index, links,
@@ -276,8 +274,6 @@ public class DatasetReader {
 			list.add(destinationIndex);
 		}
 
-		br.close();
-
 		return links;
 	}
 
@@ -331,8 +327,6 @@ public class DatasetReader {
 
 			list.add(new Action(userIndex, itemIndex, rating));
 		}
-
-		br.close();
 
 		return ratings;
 	}

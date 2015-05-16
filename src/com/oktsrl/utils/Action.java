@@ -4,7 +4,7 @@ public final class Action {
     public int user;
     public int item;
     public double rating;
-
+    
     public int getUser() {
         return user;
     }
