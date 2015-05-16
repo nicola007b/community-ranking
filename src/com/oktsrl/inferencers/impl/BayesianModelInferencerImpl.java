@@ -282,6 +282,7 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 			// restituisce in userIndex gli indici di riga per i quali gli
 			// elementi della colonna i hanno un valore > 0:
 			// tutti gli utenti che hanno espresso un rating > 0 per l'item i
+			//
 			final Indices userIndex = preferenceMatrix.findRowIndices(0, i,
 					MatrixOKT.GREATER);
 
