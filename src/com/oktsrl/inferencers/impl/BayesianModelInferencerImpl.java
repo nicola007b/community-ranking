@@ -215,7 +215,7 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 			ThetaAll[pos] = Theta.getCopy();
 			OmegaAll[pos] = Omega.getCopy();
 			
-			if (pos % 10 == 0){
+			if (epoch % 10 == 0){
 				llk += updateLLK(epoch);
 				k = k+1;
 				llk /= k;
