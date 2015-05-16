@@ -1,82 +1,54 @@
 package com.oktsrl.utils;
 
-import com.oktsrl.BuildMatrixFactoryOKT;
-import com.oktsrl.MatrixFactoryOKT;
+import java.io.FileInputStream;
+import java.util.Properties;
+
 import com.oktsrl.MatrixOKT;
-import com.oktsrl.common.dataset.DatasetReader;
-import com.oktsrl.inferencers.BayesianInferencer;
-import com.oktsrl.models.GBModel;
+import com.oktsrl.Model;
+import com.oktsrl.inferencers.impl.PairwiseRankingInferencer;
 
-import java.util.ArrayList;
+public class BayesianLauncher {
 
-public final class BayesianLauncher {
-    private MatrixFactoryOKT factory;
+	public static void main(String[] args) throws Exception {
+		System.out.println("Reading parameters...");
 
-    private MatrixOKT generateY(MatrixOKT A, int nnz) {
-        int count= nnz<<1;
-        MatrixOKT Y= factory.sparse(A.rowsCount(), A.columnsCount());
-        int row, column, nUsers= A.rowsCount();
-        while (count>0) {
-            row= factory.nextRandomInt(nUsers);
-            column= factory.nextRandomInt(nUsers);
-            if( Y.get(row, column)==0 && A.get(row, column)==0 ) {
-                Y.set(row, column, 1);
-                count--;
-            }
-        }
-        return Y;
-    }
+		final String conf = args[0];
 
-    public GBModel start(Settings settings, DatasetReader dataset) throws Exception {
-        System.out.println("CUCU");
+		Properties p = new Properties();
+		p.load(new FileInputStream(conf));
 
-        // costruisco la matrice R
-        ArrayList<Action> train_vec= new ArrayList<Action>();
-        dataset.start();
-        Review review;
-        int nUsers= Integer.MIN_VALUE;
-        int nItems= Integer.MIN_VALUE;
-        while(dataset.hasNext()) {
-            review= (Review) dataset.next(null);
-            nItems= Math.max(nItems, review.item);
-            nUsers= Math.max(nUsers, review.user);
-            train_vec.add(new Action(review.user, review.item, review.rating));
-        }
+		final String net = p.getProperty("net");
+		final String rat = p.getProperty("rat");
+		final String unk = p.getProperty("unk");
+		final String ind = p.getProperty("ind");
+		final String infConfFile = p.getProperty("infConfFile");
+		final String modelOutputFile = p.getProperty("modelOutputFile");
 
-        if( nUsers<240 )
-            factory= BuildMatrixFactoryOKT.getInstance(BuildMatrixFactoryOKT.BLAS);
-        else
-            factory= BuildMatrixFactoryOKT.getInstance(BuildMatrixFactoryOKT.UJMP);
+		final SerializatorIOManager io = new SerializatorIOManager();
 
-        MatrixOKT R= factory.sparse(nUsers, nItems);
-        for(Action action: train_vec)
-            R.set(action.getUser()-1, action.getItem()-1, action.getRating());
+		System.out.println("Loading data...");
+		final MatrixOKT socialNetwork = (MatrixOKT) io.loadObject(net);
+		final MatrixOKT preferenceMatrix = (MatrixOKT) io.loadObject(rat);
+		final MatrixOKT unknowLinks = (MatrixOKT) io.loadObject(unk);
+		final BidimensionalIndex index = (BidimensionalIndex) io
+				.loadObject(ind);
 
-        // genero la matrice A
-        MatrixOKT AA= R.mul(R.transpose(true));
-        MatrixOKT A= factory.sparse(AA.rowsCount());
-        double threshold= settings.getReal("socialNetworkThreshold", 0d);
-        int nnz= 0;
-        for(int u= 0; u<AA.rowsCount(); u++) {
-            for(int v= 0; v<AA.columnsCount(); v++) {
-                if( AA.get(u, v)>threshold ) {
-                    A.set(u, v, 1);
-                    nnz++;
-                }
-            }
-        }
-        AA= null;
-        //genero la matrice Y
-        MatrixOKT Y= generateY(A, nnz);
-        BayesianInferencer inferencer;
-        System.out.println("thread"+settings.isTruth("multithread", false));
-        if( settings.isTruth("multithread", false) )
-            inferencer= InferencerModelFactory.getInferences("Bayesian", settings);
-        else
-            inferencer= InferencerModelFactory.getInferences("BayesianParallel", settings);
-        inferencer.setSocialNetworkMatrix(A);
-        inferencer.setSocialFoldMatrix(Y);
-        inferencer.setTrainingMatrix(R);
-        return (GBModel) inferencer.runInference();
-    }
+		p = new Properties();
+		p.load(new FileInputStream(infConfFile));
+		final Settings s = new Settings(p);
+
+		System.out.println("Running inference...");
+		final PairwiseRankingInferencer inf = new PairwiseRankingInferencer(
+				s);
+
+		inf.setSocialFoldMatrix(unknowLinks);
+		inf.setIndex(index);
+		inf.setSocialNetworkMatrix(socialNetwork);
+		inf.setTrainingMatrix(preferenceMatrix);
+
+		final Model m = inf.runInference();
+
+		System.out.println("Storing model...");
+		io.storeObject(m, modelOutputFile);
+	}
 }

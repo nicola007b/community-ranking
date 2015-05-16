@@ -448,6 +448,8 @@ public class DatasetReader {
 
 			list.add(destinationIndex);
 		}
+		
+		br.close();
 
 		return links;
 	}
@@ -507,6 +509,8 @@ public class DatasetReader {
 
 			list.add(new Action(userIndex, itemIndex, rating,timestamp));
 		}
+		
+		br.close();
 
 		return ratings;
 	}
