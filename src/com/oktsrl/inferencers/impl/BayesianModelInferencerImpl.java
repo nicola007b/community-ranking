@@ -192,6 +192,8 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 
 		startInferenceTime = System.currentTimeMillis();
 
+		double llk = 0;
+		int k = 0;
 		for (int epoch = 0; epoch < maxEpoch; epoch++) {
 			logNextStep(epoch);
 
@@ -212,6 +214,13 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 
 			ThetaAll[pos] = Theta.getCopy();
 			OmegaAll[pos] = Omega.getCopy();
+			
+			if (pos % 10 == 0){
+				llk += updateLLK(pos);
+				k = k+1;
+				llk /= k;
+			}
+			
 		}
 
 		final double time = (System.currentTimeMillis() - startInferenceTime) / 1000d;
@@ -219,6 +228,11 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 				timeToString(time));
 
 		return new GBModelImpl(ThetaAll, OmegaAll, meanRating);
+	}
+
+	private double updateLLK(int pos) {
+		// TODO Auto-generated method stub
+		return 0;
 	}
 
 	/**
