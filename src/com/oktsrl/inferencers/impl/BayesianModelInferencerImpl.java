@@ -216,9 +216,11 @@ public class BayesianModelInferencerImpl implements BayesianInferencer {
 			OmegaAll[pos] = Omega.getCopy();
 			
 			if (pos % 10 == 0){
-				llk += updateLLK(pos);
+				llk += updateLLK(epoch);
 				k = k+1;
 				llk /= k;
+				log("LogLike al passo %d:\t%lf",epoch,llk);
+
 			}
 			
 		}
