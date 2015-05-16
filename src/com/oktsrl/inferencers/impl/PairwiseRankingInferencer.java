@@ -268,10 +268,10 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 		if (nUsers < 240)
 			factory = BuildMatrixFactoryOKT
-			.getInstance(BuildMatrixFactoryOKT.BLAS);
+					.getInstance(BuildMatrixFactoryOKT.BLAS);
 		else
 			factory = BuildMatrixFactoryOKT
-			.getInstance(BuildMatrixFactoryOKT.UJMP);
+					.getInstance(BuildMatrixFactoryOKT.UJMP);
 
 		initializeHyperParams();
 		initializeParams();
@@ -419,7 +419,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 						continue;
 
 					muSummation
-							.add(thetaUSq.mul(Omega.rows(j).transpose(true)));
+					.add(thetaUSq.mul(Omega.rows(j).transpose(true)));
 					muSummation.add(thetaU.mul(Zr[u].get(i, j)));
 				}
 
@@ -623,7 +623,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 	protected void samplingZr() {
 		for (int u = 0; u < nUsers; ++u) {
-			final MatrixOKT thetaUT = Theta.rows(u);
+			final MatrixOKT thetaU = Theta.rows(u).transpose(true);
 
 			// Find u's items
 			final Indices itemsOfU = preferenceMatrix.findColumnIndices(0, u,
@@ -638,15 +638,15 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 					if (j <= i)
 						continue;
 
-					final double avg = thetaUT.dot(omegaIT.sub(Omega.rows(j))
-							.transpose(true));
+					final double avg = omegaIT.sub(Omega.rows(j)).dot(thetaU);
+
 					Zr[u].set(
 							i,
 							j,
 							preferenceMatrix.get(u, i) > preferenceMatrix.get(
 									u, j) ? tnrg.next(0,
-									Double.POSITIVE_INFINITY, avg, 1) : tnrg
-									.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
+											Double.POSITIVE_INFINITY, avg, 1) : tnrg
+											.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
 				}
 			}
 		}
