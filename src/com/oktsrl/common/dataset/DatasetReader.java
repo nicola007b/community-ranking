@@ -3,6 +3,8 @@ package com.oktsrl.common.dataset;
 import java.io.BufferedReader;
 import java.io.FileInputStream;
 import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.PrintWriter;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -22,7 +24,191 @@ import com.oktsrl.utils.SerializatorIOManager;
 
 public class DatasetReader {
 
-	private static BidimensionalIndex buildFinalIdex(
+    public static void main(final String[] args) throws Exception {
+        final String handlerFileName = args[0];
+
+        final Properties properties = new Properties();
+        properties.load(new FileInputStream(handlerFileName));
+
+        final String netFile = properties.getProperty("network");
+        final String ratingFile = properties.getProperty("ratings");
+        final boolean netSkipFirstLine = properties.getProperty(
+                "netSkipFirstLine").equalsIgnoreCase("true");
+        final boolean ratSkipFirstLine = properties.getProperty(
+                "ratSkipFirstLine").equalsIgnoreCase("true");
+        final int netSource = Integer.parseInt(properties
+                .getProperty("netSourceIndex"), 10);
+        final int netDestination = Integer.parseInt(properties
+                .getProperty("netDestinationIndex"), 10);
+        final int netMinEdges = Integer.parseInt(properties
+                .getProperty("netMinEdges"), 10);
+        final int ratUser = Integer.parseInt(properties
+                .getProperty("ratUserIndex"), 10);
+        final int ratItem = Integer.parseInt(properties
+                .getProperty("ratItemIndex"), 10);
+        final int ratRating = Integer.parseInt(properties
+                .getProperty("ratRatingIndex"), 10);
+        final int ratTimestamp = Integer.parseInt(properties
+                .getProperty("ratTimestampIndex"), 10);
+        final int ratMinRatings = Integer.parseInt(properties
+                .getProperty("ratMinRatings"), 10);
+        
+        final String path_output_ratings=properties.getProperty("path_output_rating");
+        final String path_output_links=properties.getProperty("path_output_links");
+
+        final double trainTestSplit = Double.parseDouble(properties
+                .getProperty("split"));
+        
+        
+        final String netOut = properties.getProperty("netOut");
+        final String ratOut = properties.getProperty("ratOut");
+        final String unkOut = properties.getProperty("unkOut");
+        final String indOut = properties.getProperty("indOut");
+
+        final long seed = Long.parseLong(properties.getProperty("seed"), 10);
+        final Random r = new Random(seed);
+
+        final BidimensionalIndex index = new BidimensionalIndex();
+
+        System.out.println("reading network...");
+        final HashMap<Integer, HashSet<Integer>> links = readNetwork(netFile,
+                index, netSkipFirstLine, netSource, netDestination);
+
+        System.out.println("reading ratings...");
+        final HashMap<Integer, LinkedList<Action>> ratings = readRatings(
+                ratingFile, index, ratSkipFirstLine, ratUser, ratItem,
+                ratRating,ratTimestamp);
+
+        System.out.println("initial");
+        System.out.println("nUsers: " + index.nRows());
+        System.out.println("nItems: " + index.nColumns());
+
+        System.out.println("filtering...");
+        filterMatrices(links, ratings, netMinEdges, ratMinRatings, index
+                .nRows());
+
+        
+        HashMap<Integer, LinkedList<Action>> ratings_train =new HashMap<Integer, LinkedList<Action>>();
+        HashMap<Integer, LinkedList<Action>> ratings_test =new HashMap<Integer, LinkedList<Action>>();
+        HashMap<Integer, HashSet<Integer>> links_train=new HashMap<Integer, HashSet<Integer>>();
+        HashMap<Integer, HashSet<Integer>> links_test=new HashMap<Integer, HashSet<Integer>>();
+
+        System.out.print("Generating split of the network... ");
+        generateTrainTest(links,ratings,ratings_train,ratings_test,links_train,links_test,trainTestSplit);
+        System.out.println("Done");
+      
+        System.out.print("Storing train & test...");
+        storeTrainTest(ratings_train,ratings_test,links_train,links_test,path_output_ratings,path_output_links);
+        System.out.println("Done");
+        
+        System.out.println("building index...");
+        final BidimensionalIndex newIndex = buildFinalIdex(index, links_train,
+                ratings_train);
+
+        System.out.println("building matrixes...");
+        final MatrixOKT[] matrixes = buildMatrixes(index, newIndex, links_train,
+                ratings_train, r);
+
+        System.out.println("storing output...");
+        storeInferenceInput(netOut, matrixes[0], ratOut, matrixes[1], unkOut,
+                matrixes[2], indOut, newIndex);
+
+        System.out.println("final");
+        System.out.println("nUsers: " + newIndex.nRows());
+        System.out.println("nItems: " + newIndex.nColumns());
+
+        System.out.println("... end");
+    }
+    
+
+
+    private static void storeTrainTest(
+            HashMap<Integer, LinkedList<Action>> ratings_train,
+            HashMap<Integer, LinkedList<Action>> ratings_test,
+            HashMap<Integer, HashSet<Integer>> links_train,
+            HashMap<Integer, HashSet<Integer>> links_test,
+            String path_output_ratings, String path_output_links) throws Exception {
+       
+        
+        PrintWriter pw_ratings_train=new PrintWriter(new FileWriter(path_output_ratings+"_train"));
+        
+        //print header
+        pw_ratings_train.println("UserId\tItemId\tRating\tTimestamp");
+        
+        
+        LinkedList<Action> actions_per_user;
+        for(int userId:ratings_train.keySet()){
+            actions_per_user=ratings_train.get(userId);
+            Collections.sort(actions_per_user);
+            for(Action a:actions_per_user){
+                pw_ratings_train.println(""+a.user+"\t"+a.item+"\t"+a.rating+"\t"+a.timestamp);
+            }
+            
+        }
+       
+        pw_ratings_train.flush();
+        pw_ratings_train.close();
+        
+        PrintWriter pw_ratings_test=new PrintWriter(new FileWriter(path_output_ratings+"_test"));
+
+        pw_ratings_test.println("UserId\tItemId\tRating\tTimestamp");
+
+        for(int userId:ratings_test.keySet()){
+            actions_per_user=ratings_test.get(userId);
+            Collections.sort(actions_per_user);
+            for(Action a:actions_per_user){
+                pw_ratings_test.println(""+a.user+"\t"+a.item+"\t"+a.rating+"\t"+a.timestamp);
+            }
+            
+        }
+       
+        pw_ratings_train.flush();
+        pw_ratings_train.close();
+        
+        pw_ratings_test.flush();
+        pw_ratings_test.close();
+        
+        PrintWriter pw_links_train=new PrintWriter(new FileWriter(path_output_links+"_train"));
+       
+        pw_links_train.println("Source\tDestination");
+        HashSet<Integer>links_per_user;
+        
+        for(int u:links_train.keySet()){
+            links_per_user=links_train.get(u);
+          
+            for(Integer v:links_per_user){
+                pw_links_train.println(""+u+"\t"+v);
+            }
+            
+        }
+        
+        pw_links_train.flush();
+        pw_links_train.close();
+        
+        
+        PrintWriter pw_links_test=new PrintWriter(new FileWriter(path_output_links+"_test"));
+        pw_links_train.println("Source\tDestination");
+        
+        for(int u:links_test.keySet()){
+            links_per_user=links_test.get(u);
+          
+            for(Integer v:links_per_user){
+                pw_links_test.println(""+u+"\t"+v);
+            }
+        }
+        
+        pw_links_test.flush();
+        pw_links_test.close();
+        
+        
+        
+        pw_links_test.flush();
+        pw_links_test.close();
+    }
+
+
+
+    private static BidimensionalIndex buildFinalIdex(
 			final BidimensionalIndex index,
 			final HashMap<Integer, HashSet<Integer>> links,
 			final HashMap<Integer, LinkedList<Action>> ratings) {
@@ -156,92 +342,6 @@ public class DatasetReader {
 			System.out.println("#clean: " + jj + ", total removed: " + removed);
 	}
 
-	public static void main(final String[] args) throws Exception {
-		final String handlerFileName = args[0];
-
-		final Properties properties = new Properties();
-		properties.load(new FileInputStream(handlerFileName));
-
-		final String netFile = properties.getProperty("network");
-		final String ratingFile = properties.getProperty("ratings");
-		final boolean netSkipFirstLine = properties.getProperty(
-				"netSkipFirstLine").equalsIgnoreCase("true");
-		final boolean ratSkipFirstLine = properties.getProperty(
-				"ratSkipFirstLine").equalsIgnoreCase("true");
-		final int netSource = Integer.parseInt(properties
-				.getProperty("netSourceIndex"), 10);
-		final int netDestination = Integer.parseInt(properties
-				.getProperty("netDestinationIndex"), 10);
-		final int netMinEdges = Integer.parseInt(properties
-				.getProperty("netMinEdges"), 10);
-		final int ratUser = Integer.parseInt(properties
-				.getProperty("ratUserIndex"), 10);
-		final int ratItem = Integer.parseInt(properties
-				.getProperty("ratItemIndex"), 10);
-		final int ratRating = Integer.parseInt(properties
-				.getProperty("ratRatingIndex"), 10);
-		final int ratTimestamp = Integer.parseInt(properties
-                .getProperty("ratTimestampIndex"), 10);
-		final int ratMinRatings = Integer.parseInt(properties
-				.getProperty("ratMinRatings"), 10);
-
-		final double trainTestSplit = Double.parseDouble(properties
-                .getProperty("split"));
-		
-		
-		final String netOut = properties.getProperty("netOut");
-		final String ratOut = properties.getProperty("ratOut");
-		final String unkOut = properties.getProperty("unkOut");
-		final String indOut = properties.getProperty("indOut");
-
-		final long seed = Long.parseLong(properties.getProperty("seed"), 10);
-		final Random r = new Random(seed);
-
-		final BidimensionalIndex index = new BidimensionalIndex();
-
-		System.out.println("reading network...");
-		final HashMap<Integer, HashSet<Integer>> links = readNetwork(netFile,
-				index, netSkipFirstLine, netSource, netDestination);
-
-		System.out.println("reading ratings...");
-		final HashMap<Integer, LinkedList<Action>> ratings = readRatings(
-				ratingFile, index, ratSkipFirstLine, ratUser, ratItem,
-				ratRating,ratTimestamp);
-
-		System.out.println("initial");
-		System.out.println("nUsers: " + index.nRows());
-		System.out.println("nItems: " + index.nColumns());
-
-		System.out.println("filtering...");
-		filterMatrices(links, ratings, netMinEdges, ratMinRatings, index
-				.nRows());
-
-		
-		HashMap<Integer, LinkedList<Action>> ratings_train =new HashMap<Integer, LinkedList<Action>>();
-	    HashMap<Integer, LinkedList<Action>> ratings_test =new HashMap<Integer, LinkedList<Action>>();
-	    HashMap<Integer, HashSet<Integer>> links_train=new HashMap<Integer, HashSet<Integer>>();
-	    HashMap<Integer, HashSet<Integer>> links_test=new HashMap<Integer, HashSet<Integer>>();
-
-		generateTrainTest(links,ratings,ratings_train,ratings_test,links_train,links_test,trainTestSplit);
-		
-		System.out.println("building index...");
-		final BidimensionalIndex newIndex = buildFinalIdex(index, links,
-				ratings);
-
-		System.out.println("building matrixes...");
-		final MatrixOKT[] matrixes = buildMatrixes(index, newIndex, links,
-				ratings, r);
-
-		System.out.println("storing output...");
-		storeInferenceInput(netOut, matrixes[0], ratOut, matrixes[1], unkOut,
-				matrixes[2], indOut, newIndex);
-
-		System.out.println("final");
-		System.out.println("nUsers: " + newIndex.nRows());
-		System.out.println("nItems: " + newIndex.nColumns());
-
-		System.out.println("... end");
-	}
 
 	
 	private static void generateTrainTest(
@@ -253,7 +353,6 @@ public class DatasetReader {
             HashMap<Integer, HashSet<Integer>> links_test, double trainTestSplit) {
        
 	  
-	    System.out.println("Generating split of the network");
 	    //network train/test are generated by random sampling
 	   HashSet<Integer> links_per_user;
 	   for(int userId:links.keySet()){
