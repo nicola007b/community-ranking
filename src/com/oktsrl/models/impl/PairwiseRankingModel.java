@@ -5,6 +5,7 @@ import com.oktsrl.Model;
 import com.oktsrl.utils.BidimensionalIndex;
 
 public final class PairwiseRankingModel implements Model {
+
 	private static final long serialVersionUID = -4432232006908441346l;
 
 	private final MatrixOKT[] ThetaAll;
