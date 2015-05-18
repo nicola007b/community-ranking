@@ -7,19 +7,6 @@ import java.util.Random;
 import java.util.StringTokenizer;
 
 public class TruncatedNormalRandomGenerator {
-	private static final double[] x;
-	private static final double[] yu;
-	private static final int[] ncell;
-
-	private static final String xFile = ".dat/tnx.txt";
-	private static final String yuFile = ".dat/tnyu.txt";
-	private static final String ncellFile = ".dat/tnncell.txt";
-
-	static {
-		x = readDoubles(xFile);
-		yu = readDoubles(yuFile);
-		ncell = readIntegers(ncellFile);
-	}
 
 	private static double[] readDoubles(final String file) {
 		try {
@@ -79,9 +66,17 @@ public class TruncatedNormalRandomGenerator {
 		}
 	}
 
+	private final double[] x;
+	private final double[] yu;
+	private final int[] ncell;
 	private final Random r;
 
-	public TruncatedNormalRandomGenerator(final long seed) {
+	public TruncatedNormalRandomGenerator(String xFile, String yuFile,
+			String ncellFile, final long seed) {
+
+		x = readDoubles(xFile);
+		yu = readDoubles(yuFile);
+		ncell = readIntegers(ncellFile);
 		r = new Random(seed);
 	}
 
@@ -145,7 +140,7 @@ public class TruncatedNormalRandomGenerator {
 			// Sample integer between ka and kb
 			final int k = r.nextInt(kSup - kInf + 1) + kInf;
 
-			if (k == N + 1) {
+			if (k >= N) {
 
 				// Right tail
 				final double lbound = x[x.length - 1];
@@ -158,7 +153,7 @@ public class TruncatedNormalRandomGenerator {
 					// Accept this proposition, otherwise reject
 					return lbound + z;
 
-			} else if (k <= kInf + 2 || k >= kSup && sup < xmax) {
+			} else if (k <= kInf + 1 || k >= kSup - 1 && sup < xmax) {
 
 				// Two leftmost and rightmost regions
 				final double sim = x[k] + (x[k + 1] - x[k]) * r.nextDouble();
@@ -170,11 +165,11 @@ public class TruncatedNormalRandomGenerator {
 					// Compute y_l from y_k
 					double ylk;
 
-					if (k == 1)
+					if (k == 0)
 						ylk = yl0;
-					else if (k == N)
+					else if (k == N - 1)
 						ylk = ylN;
-					else if (k <= 1954)
+					else if (k <= 1953)
 						ylk = yu[k - 1];
 					else
 						ylk = yu[k + 1];
@@ -195,11 +190,11 @@ public class TruncatedNormalRandomGenerator {
 				// Compute y_l from y_k
 				double ylk;
 
-				if (k == 1)
+				if (k == 0)
 					ylk = yl0;
-				else if (k == N)
+				else if (k >= N - 1)
 					ylk = ylN;
-				else if (k <= 1954)
+				else if (k <= 1953)
 					ylk = yu[k - 1];
 				else
 					ylk = yu[k + 1];
@@ -230,7 +225,7 @@ public class TruncatedNormalRandomGenerator {
 	/**
 	 * Pseudorandom numbers from a truncated (normalized) Gaussian distribution
 	 * (i.e. rtnorm(a,b,0,1))
-	 * 
+	 *
 	 * @param inf
 	 * @param sup
 	 * @return

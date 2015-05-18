@@ -15,11 +15,11 @@ public class PredictorEvaluator {
 
 	public void addContribution(double realValue, double predictedValue) {
 		numberOfOccurrences++;
-		double delta = realValue - predictedValue;
+		final double delta = realValue - predictedValue;
 		mSE += Math.pow(delta, 2);
 		mAE += Math.abs(delta);
 		if (realValue != 0)
-			mAPE += (Math.abs(delta) / realValue);
+			mAPE += Math.abs(delta) / realValue;
 	}
 
 	public double getMAE() {
@@ -34,28 +34,21 @@ public class PredictorEvaluator {
 		return mSE / numberOfOccurrences;
 	}
 
-	public double getRMSE(){
-		return Math.sqrt(mSE
-				/ numberOfOccurrences);
-	}
-	
 	public int getNumberOfOccurrences() {
 		return numberOfOccurrences;
 	}
 
+	public double getRMSE() {
+		return Math.sqrt(mSE / numberOfOccurrences);
+	}
+
 	public void print() {
 
-		String prints = "mse:"
-				+ (mSE / numberOfOccurrences)
-				+ "\nrmse:"
-				+ (Math.sqrt(mSE
-						/ numberOfOccurrences)) + "\nmae:"
-				+ (mAE / numberOfOccurrences)
-				+ "\nmape:" + (mAPE / numberOfOccurrences);
+		final String prints = "mse:" + mSE / numberOfOccurrences + "\nrmse:"
+				+ Math.sqrt(mSE / numberOfOccurrences) + "\nmae:" + mAE
+				/ numberOfOccurrences + "\nmape:" + mAPE / numberOfOccurrences;
 
 		System.out.println(prints);
 
 	}
-
 }
-

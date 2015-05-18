@@ -3,7 +3,10 @@ package com.oktsrl.utils;
 import java.io.Serializable;
 
 public final class Action implements Comparable<Action>,Serializable{
-    public int user;
+
+	private static final long serialVersionUID = -1013389969348628100L;
+
+	public int user;
     public int item;
     public double rating;
     public long timestamp;
