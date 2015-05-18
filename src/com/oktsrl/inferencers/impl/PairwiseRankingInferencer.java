@@ -104,97 +104,89 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 	}
 
 	private double computeLogLikelihood(int epoch) {
-		double mean = 0;
-		final int limit = min(epoch, ThetaAll.length);
 
 		// XXX mean and std?
 		final NormalDistribution nd = new NormalDistribution();
 
-		for (int k = 0; k < limit; ++k) {
-			final MatrixOKT theta_k = ThetaAll[k];
-			final MatrixOKT omega_k = OmegaAll[k];
+		final MatrixOKT theta_k = ThetaAll[epoch];
+		final MatrixOKT omega_k = OmegaAll[epoch];
 
-			double log_Pr_ep = 0;
-			double log_Pr_rp = 0;
+		double log_Pr_ep = 0;
+		double log_Pr_rp = 0;
 
-			// Observed links & items
-			for (int u = 0; u < nUsers; ++u) {
-				final Indices userIndex = socialNetwork.findColumnIndices(0, u,
-						MatrixOKT.NOT);
+		// Observed links & items
+		for (int u = 0; u < nUsers; ++u) {
+			final Indices userIndex = socialNetwork.findColumnIndices(0, u,
+					MatrixOKT.NOT);
 
-				final MatrixOKT thetaU = theta_k.rows(u).transpose(true);
+			final MatrixOKT thetaU = theta_k.rows(u).transpose(true);
 
-				// Links
-				for (final int v : userIndex.toArray()) {
-					if (v <= u)
-						continue;
-
-					// XXX rows() resituisce una matrice nuova???
-					final MatrixOKT thetaVT = theta_k.rows(v);
-
-					final double z_uv = thetaVT.dot(thetaU);
-					final double phi = nd.cumulativeProbability(z_uv);
-
-					log_Pr_ep += Math.log(phi);
-				}
-
-				// Items
-				final Indices itemIndex = preferenceMatrix.findColumnIndices(0,
-						u, MatrixOKT.GREATER);
-
-				final int[] itemIndexToArray = itemIndex.toArray();
-				final int n = itemIndexToArray.length;
-
-				for (int i = 0; i < n; ++i)
-					for (int j = i + 1; j < n; ++j) {
-
-						int itemI = itemIndexToArray[i];
-						int itemJ = itemIndexToArray[j];
-
-						if (itemI > itemJ) {
-							final int tmp = itemI;
-							itemI = itemJ;
-							itemJ = tmp;
-						}
-
-						final MatrixOKT deltaOmegaT = omega_k.rows(itemI).sub(
-								omega_k.rows(itemJ));
-
-						final double w_uij = deltaOmegaT.dot(thetaU);
-						final double phi = nd.cumulativeProbability(w_uij);
-
-						log_Pr_rp += Math.log(2 * phi);
-					}
-			}
-
-			// Negative links: we are assuming that all the selected unknown
-			// links are negative XXX richiedi conferma a Beppe
-			final Indices[] unknownIndices = unknownLinks.find(0,
-					MatrixOKT.GREATER);
-			final int n = unknownIndices[0].count();
-
-			for (int j = 0; j < n; j++) {
-				final int u = unknownIndices[0].get(j);
-				final int v = unknownIndices[1].get(j);
-
+			// Links
+			for (final int v : userIndex.toArray()) {
 				if (v <= u)
 					continue;
 
-				final MatrixOKT thetaU = theta_k.rows(u).transpose(true);
+				// XXX rows() resituisce una matrice nuova???
 				final MatrixOKT thetaVT = theta_k.rows(v);
 
 				final double z_uv = thetaVT.dot(thetaU);
 				final double phi = nd.cumulativeProbability(z_uv);
 
-				log_Pr_ep += Math.log(1 - phi);
+				log_Pr_ep += Math.log(phi);
 			}
 
-			final double llk = log_Pr_ep + log_Pr_rp;
+			// Items
+			final Indices itemIndex = preferenceMatrix.findColumnIndices(0, u,
+					MatrixOKT.GREATER);
 
-			mean += llk;
+			final int[] itemIndexToArray = itemIndex.toArray();
+			final int n = itemIndexToArray.length;
+
+			for (int i = 0; i < n; ++i)
+				for (int j = i + 1; j < n; ++j) {
+
+					int itemI = itemIndexToArray[i];
+					int itemJ = itemIndexToArray[j];
+
+					if (itemI > itemJ) {
+						final int tmp = itemI;
+						itemI = itemJ;
+						itemJ = tmp;
+					}
+
+					final MatrixOKT deltaOmegaT = omega_k.rows(itemI).sub(
+							omega_k.rows(itemJ));
+
+					final double w_uij = deltaOmegaT.dot(thetaU);
+					final double phi = nd.cumulativeProbability(w_uij);
+
+					log_Pr_rp += Math.log(2 * phi);
+				}
 		}
 
-		return mean / limit;
+		// Negative links: we are assuming that all the selected unknown
+		// links are negative XXX richiedi conferma a Beppe
+		final Indices[] unknownIndices = unknownLinks
+				.find(0, MatrixOKT.GREATER);
+		final int n = unknownIndices[0].count();
+
+		for (int j = 0; j < n; j++) {
+			final int u = unknownIndices[0].get(j);
+			final int v = unknownIndices[1].get(j);
+
+			if (v <= u)
+				continue;
+
+			final MatrixOKT thetaU = theta_k.rows(u).transpose(true);
+			final MatrixOKT thetaVT = theta_k.rows(v);
+
+			final double z_uv = thetaVT.dot(thetaU);
+			final double phi = nd.cumulativeProbability(z_uv);
+
+			log_Pr_ep += Math.log(1 - phi);
+		}
+
+		return log_Pr_ep + log_Pr_rp;
 	}
 
 	private void hyperSample() {
@@ -335,7 +327,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			OmegaAll[pos] = Omega.getCopy();
 
 			if (epoch % 10 == 0) {
-				llk += computeLogLikelihood(epoch);
+				llk += computeLogLikelihood(pos) * k;
 				k = k + 1;
 				llk /= k;
 				log("LogLike al passo %d:\t%lf", epoch, llk);
@@ -419,7 +411,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 						continue;
 
 					muSummation
-					.add(thetaUSq.mul(Omega.rows(j).transpose(true)));
+							.add(thetaUSq.mul(Omega.rows(j).transpose(true)));
 					muSummation.add(thetaU.mul(Zr[u].get(i, j)));
 				}
 
@@ -645,8 +637,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 							j,
 							preferenceMatrix.get(u, i) > preferenceMatrix.get(
 									u, j) ? tnrg.next(0,
-											Double.POSITIVE_INFINITY, avg, 1) : tnrg
-											.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
+									Double.POSITIVE_INFINITY, avg, 1) : tnrg
+									.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
 				}
 			}
 		}
