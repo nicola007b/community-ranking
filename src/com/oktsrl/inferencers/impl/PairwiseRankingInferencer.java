@@ -4,13 +4,13 @@ import java.util.Random;
 
 import org.apache.commons.math3.distribution.NormalDistribution;
 
-import com.oktsrl.BuildMatrixFactoryOKT;
-import com.oktsrl.Indices;
-import com.oktsrl.MatrixFactoryOKT;
-import com.oktsrl.MatrixOKT;
 import com.oktsrl.Model;
-import com.oktsrl.Summation;
 import com.oktsrl.inferencers.BayesianInferencer;
+import com.oktsrl.math.BuildMatrixFactoryOKT;
+import com.oktsrl.math.Indices;
+import com.oktsrl.math.MatrixFactoryOKT;
+import com.oktsrl.math.MatrixOKT;
+import com.oktsrl.math.Summation;
 import com.oktsrl.models.impl.PairwiseRankingModel;
 import com.oktsrl.utils.BidimensionalIndex;
 import com.oktsrl.utils.EdgeType;
@@ -253,10 +253,10 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 		if (nUsers < 240)
 			factory = BuildMatrixFactoryOKT
-					.getInstance(BuildMatrixFactoryOKT.BLAS);
+			.getInstance(BuildMatrixFactoryOKT.BLAS);
 		else
 			factory = BuildMatrixFactoryOKT
-					.getInstance(BuildMatrixFactoryOKT.UJMP);
+			.getInstance(BuildMatrixFactoryOKT.UJMP);
 
 		initializeHyperParams();
 		initializeParams();
@@ -404,7 +404,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 						continue;
 
 					muSummation
-							.add(thetaUSq.mul(Omega.rows(j).transpose(true)));
+					.add(thetaUSq.mul(Omega.rows(j).transpose(true)));
 					muSummation.add(thetaU.mul(Zr[u].get(i, j)));
 				}
 
@@ -607,6 +607,9 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 	}
 
 	protected void samplingZr() {
+		int kk = 0;
+		double cumTime = 0;
+
 		for (int u = 0; u < nUsers; ++u) {
 			final MatrixOKT thetaU = Theta.rows(u).transpose(true);
 
@@ -616,6 +619,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			final int[] itemsOfUArray = itemsOfU.toArray();
 
 			// XXX collo di bottiglia
+			final long time = System.currentTimeMillis();
 			for (final int i : itemsOfUArray) {
 				final MatrixOKT omegaIT = Omega.rows(i);
 
@@ -630,9 +634,18 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 							j,
 							preferenceMatrix.get(u, i) > preferenceMatrix.get(
 									u, j) ? tnrg.next(0,
-									Double.POSITIVE_INFINITY, avg, 1) : tnrg
-									.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
+											Double.POSITIVE_INFINITY, avg, 1) : tnrg
+											.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
 				}
+			}
+
+			++kk;
+			cumTime += System.currentTimeMillis() - time;
+			final int div = 100;
+
+			if (kk % div == 0) {
+				System.out.println("### " + kk + " ==> " + cumTime / div);
+				cumTime = 0;
 			}
 		}
 	}

@@ -1,6 +1,6 @@
 package com.oktsrl.models.impl;
 
-import com.oktsrl.MatrixOKT;
+import com.oktsrl.math.MatrixOKT;
 import com.oktsrl.models.GBModel;
 import com.oktsrl.utils.BidimensionalIndex;
 

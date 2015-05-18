@@ -1,7 +1,7 @@
 package com.oktsrl.models.impl;
 
-import com.oktsrl.MatrixOKT;
 import com.oktsrl.Model;
+import com.oktsrl.math.MatrixOKT;
 import com.oktsrl.utils.BidimensionalIndex;
 
 public final class PairwiseRankingModel implements Model {

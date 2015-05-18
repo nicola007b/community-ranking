@@ -3,9 +3,9 @@ package com.oktsrl.utils;
 import java.io.FileInputStream;
 import java.util.Properties;
 
-import com.oktsrl.MatrixOKT;
 import com.oktsrl.Model;
 import com.oktsrl.inferencers.impl.PairwiseRankingInferencer;
+import com.oktsrl.math.MatrixOKT;
 
 public class BayesianLauncher {
 
@@ -38,8 +38,7 @@ public class BayesianLauncher {
 		final Settings s = new Settings(p);
 
 		System.out.println("Running inference...");
-		final PairwiseRankingInferencer inf = new PairwiseRankingInferencer(
-				s);
+		final PairwiseRankingInferencer inf = new PairwiseRankingInferencer(s);
 
 		inf.setSocialFoldMatrix(unknowLinks);
 		inf.setIndex(index);
