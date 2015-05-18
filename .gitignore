@@ -1,2 +1,7 @@
-/target
+/target/
 /bin/
+/.settings/
+/target/classes/
+.classpath
+bin
+/data/

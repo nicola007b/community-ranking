@@ -22,13 +22,6 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		System.out.println(String.format(message, params));
 	}
 
-	private static int min(int i, int j) {
-		if (i < j)
-			return i;
-
-		return j;
-	}
-
 	private static String timeToString(double time) {
 		String measure = "secondi";
 		if (time > 60d) {
@@ -136,17 +129,17 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			}
 
 			// Items
-			final Indices itemIndex = preferenceMatrix.findColumnIndices(0, u,
+			final Indices negativeIndex = Y.findColumnIndices(0, u,
 					MatrixOKT.GREATER);
 
-			final int[] itemIndexToArray = itemIndex.toArray();
-			final int n = itemIndexToArray.length;
+			final int[] negativeIndexToArray = negativeIndex.toArray();
+			final int n = negativeIndexToArray.length;
 
 			for (int i = 0; i < n; ++i)
 				for (int j = i + 1; j < n; ++j) {
 
-					int itemI = itemIndexToArray[i];
-					int itemJ = itemIndexToArray[j];
+					int itemI = negativeIndexToArray[i];
+					int itemJ = negativeIndexToArray[j];
 
 					if (itemI > itemJ) {
 						final int tmp = itemI;
