@@ -160,7 +160,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 					final double w_uij = deltaOmegaT.dot(thetaU);
 					final double phi = nd.cumulativeProbability(w_uij);
 
-					log_Pr_rp += Math.log(2 * phi);
+					log_Pr_rp += 2 * Math.log(phi);
 				}
 		}
 
