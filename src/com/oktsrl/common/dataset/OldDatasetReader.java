@@ -58,10 +58,10 @@ public class OldDatasetReader {
 
 		if (nUsers < 240)
 			factory = BuildMatrixFactoryOKT
-			.getInstance(BuildMatrixFactoryOKT.BLAS);
+					.getInstance(BuildMatrixFactoryOKT.BLAS);
 		else
 			factory = BuildMatrixFactoryOKT
-			.getInstance(BuildMatrixFactoryOKT.UJMP);
+					.getInstance(BuildMatrixFactoryOKT.UJMP);
 
 		final MatrixOKT socialNetwork = factory.sparse(nUsers, nUsers);
 		int nnz = 0;
@@ -95,7 +95,7 @@ public class OldDatasetReader {
 			for (final Action action : actions)
 				preferenceMatrix.set(newIndex.rowIndex(oldIndex.rowId(action
 						.getUser())), newIndex.columnIndex(oldIndex
-								.columnId(action.getItem())), action.getRating());
+						.columnId(action.getItem())), action.getRating());
 
 		int count = nnz << 1;
 		final MatrixOKT unknownLinks = factory.sparse(nUsers, nUsers);

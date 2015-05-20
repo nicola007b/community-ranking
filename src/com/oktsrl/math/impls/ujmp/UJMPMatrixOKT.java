@@ -21,9 +21,6 @@ public class UJMPMatrixOKT extends AbstractMatrixOKT {
 
 	private static final long serialVersionUID = 2006854950752167789L;
 
-	private UJMPMatrixOKTSingleton s1;
-	private UJMPMatrixOKTSingleton s2;
-
 	public Matrix matrix;
 
 	public UJMPMatrixOKT(Matrix matrix, MatrixFactoryOKT factory) {
@@ -90,13 +87,6 @@ public class UJMPMatrixOKT extends AbstractMatrixOKT {
 		return new UJMPIndices(indices);
 	}
 
-	public void createSingletons() {
-		if (s1 == null) {
-			s1 = new UJMPMatrixOKTSingleton(null, factory);
-			s2 = new UJMPMatrixOKTSingleton(null, factory);
-		}
-	}
-
 	@Override
 	public double det() {
 		// TEST OK
@@ -135,6 +125,7 @@ public class UJMPMatrixOKT extends AbstractMatrixOKT {
 	public double dot(MatrixOKT mat) {
 		// TEST OK
 		final Matrix m = ((UJMPMatrixOKT) mat).matrix;
+
 		if (matrix.getRowCount() == 1) {
 			if (m.getRowCount() == 1)
 				return matrix.mtimes(m.transpose(Calculation.Ret.LINK))
@@ -147,6 +138,7 @@ public class UJMPMatrixOKT extends AbstractMatrixOKT {
 			else if (m.getColumnCount() == 1)
 				return matrix.transpose(Calculation.Ret.LINK).mtimes(m)
 						.getAsDouble(0, 0);
+
 		return Double.NaN;
 	}
 
@@ -274,7 +266,7 @@ public class UJMPMatrixOKT extends AbstractMatrixOKT {
 		final Matrix dimension = solvePolicy(
 				matrix.selectRows(Calculation.Ret.LINK, row), target, policy);
 		return dimension == null ? new UJMPIndices(new int[0])
-		: convertToIndices(dimension);
+				: convertToIndices(dimension);
 	}
 
 	@Override
@@ -302,7 +294,7 @@ public class UJMPMatrixOKT extends AbstractMatrixOKT {
 				matrix.selectColumns(Calculation.Ret.LINK, column), target,
 				policy);
 		return dimension == null ? new UJMPIndices(new int[0])
-		: convertToIndices(dimension);
+				: convertToIndices(dimension);
 	}
 
 	@Override
@@ -323,19 +315,19 @@ public class UJMPMatrixOKT extends AbstractMatrixOKT {
 		if ((policy & GREATER) == GREATER) {
 			if ((policy & EQUAL) == EQUAL)
 				return value -> value >= target;
-				else
-					return value -> value > target;
+			else
+				return value -> value > target;
 		} else if ((policy & LESS) == LESS) {
 			if ((policy & EQUAL) == EQUAL)
 				return value -> value <= target;
-				else
-					return value -> value < target;
+			else
+				return value -> value < target;
 		} else if ((policy & EQUAL) == EQUAL)
 			if ((policy & NOT) == NOT)
 				return value -> value != target;
-				else
-					return value -> value == target;
-					return null;
+			else
+				return value -> value == target;
+		return null;
 	}
 
 	@Override
@@ -501,18 +493,6 @@ public class UJMPMatrixOKT extends AbstractMatrixOKT {
 				factory);
 	}
 
-	public MatrixOKT rowS1(int row) {
-		// TEST OK
-		s1.setMatrix(matrix.selectRows(Calculation.Ret.NEW, new long[] { row }));
-		return s1;
-	}
-
-	public MatrixOKT rowS2(int row) {
-		// TEST OK
-		s2.setMatrix(matrix.selectRows(Calculation.Ret.NEW, new long[] { row }));
-		return s2;
-	}
-
 	@Override
 	public int rowsCount() {
 		// TEST OK
@@ -538,10 +518,9 @@ public class UJMPMatrixOKT extends AbstractMatrixOKT {
 			else
 				return dimension.lt(Calculation.Ret.LINK, target);
 		} else if ((policy & EQUAL) == EQUAL)
-			if ((policy & NOT) == NOT)
-				return dimension.ne(Calculation.Ret.LINK, target);
-			else
-				return dimension.eq(Calculation.Ret.LINK, target);
+			return dimension.eq(Calculation.Ret.LINK, target);
+		else if ((policy & NOT) == NOT)
+			return dimension.ne(Calculation.Ret.LINK, target);
 		return null;
 	}
 
@@ -564,12 +543,12 @@ public class UJMPMatrixOKT extends AbstractMatrixOKT {
 		if (rowIndices.count() == 1) {
 			final Matrix m = matrix.selectRows(Calculation.Ret.LINK,
 					rowIndices.get(0)).selectColumns(Calculation.Ret.NEW,
-							columnIndices.toLongArray());
+					columnIndices.toLongArray());
 			return new UJMPMatrixOKT(m, factory);
 		} else if (columnIndices.count() == 1) {
 			final Matrix m = matrix.selectColumns(Calculation.Ret.LINK,
 					columnIndices.get(0)).selectRows(Calculation.Ret.NEW,
-							rowIndices.toLongArray());
+					rowIndices.toLongArray());
 			return new UJMPMatrixOKT(m, factory);
 		}
 		return rows(rowIndices).columns(columnIndices);

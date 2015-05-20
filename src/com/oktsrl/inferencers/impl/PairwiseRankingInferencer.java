@@ -1,6 +1,9 @@
 package com.oktsrl.inferencers.impl;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.Map;
 import java.util.Random;
 
 import org.apache.commons.math3.distribution.NormalDistribution;
@@ -12,19 +15,36 @@ import com.oktsrl.math.Indices;
 import com.oktsrl.math.MatrixFactoryOKT;
 import com.oktsrl.math.MatrixOKT;
 import com.oktsrl.math.Summation;
-import com.oktsrl.math.impls.ujmp.UJMPMatrixOKT;
 import com.oktsrl.models.impl.PairwiseRankingModel;
 import com.oktsrl.utils.BidimensionalIndex;
-import com.oktsrl.utils.EdgeType;
 import com.oktsrl.utils.Settings;
 import com.oktsrl.utils.TruncatedNormalRandomGenerator;
 
 public class PairwiseRankingInferencer implements BayesianInferencer {
+
+	private static final int BINARY_SEARCH_ACTIVATION = 12;
+
+	private static int binarySearch(int[] v, int key) {
+		int low = 0;
+		int high = v.length - 1;
+
+		while (low <= high) {
+			final int mid = low + high >>> 1;
+
+			if (v[mid] < key)
+				low = mid + 1;
+			else if (v[mid] > key)
+				high = mid - 1;
+			else
+				return mid; // key found
+		}
+		return -(low + 1); // key not found
+	}
+
 	private static void log(final String message, final Object... params) {
 		System.out.println(String.format(message, params));
 	}
 
-	@SuppressWarnings("unused")
 	private static int min(int i, int j) {
 		if (i < j)
 			return i;
@@ -41,6 +61,36 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		return String.valueOf(d);
 	}
 
+	private static void shuffle(int[] v, int elements, Random rnd) {
+		for (int i = elements; i > 1; --i) {
+			final int j = rnd.nextInt(i);
+			final int tmp = v[i - i];
+			v[i - 1] = v[j];
+			v[j] = tmp;
+		}
+	}
+
+	private static int sortedLinearSearch(int[] v, int key) {
+		final int n = v.length;
+
+		for (int i = 0; i < n; ++i) {
+			if (v[i] > key)
+				return -(i + 1);
+
+			if (v[i] == key)
+				return i;
+		}
+
+		return -(n + 1);
+	}
+
+	private static int sortedSearch(int[] v, int key) {
+		if (v.length < BINARY_SEARCH_ACTIVATION)
+			return sortedLinearSearch(v, key);
+		else
+			return binarySearch(v, key);
+	}
+
 	private static String timeToString(double time) {
 		String measure = "secondi";
 		if (time > 60d) {
@@ -53,25 +103,27 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		return String.format("%.2f %s", time, measure);
 	}
 
-	protected MatrixFactoryOKT factory;
-
 	protected int nUsers;
 	protected int nItems;
+
+	protected MatrixFactoryOKT factory;
 	protected MatrixOKT socialNetwork;
 	protected MatrixOKT preferenceMatrix;
-
 	protected MatrixOKT unknownLinks;
+
 	protected BidimensionalIndex index;
-	protected MatrixOKT Theta, Omega, Y;
+
+	protected MatrixOKT Theta;
+	private MatrixOKT Omega;
+	protected MatrixOKT[] ThetaAll;
+	protected MatrixOKT[] OmegaAll;
 
 	protected MatrixOKT Ze;
 	protected MatrixOKT[] Zr;
 
-	protected MatrixOKT[] ThetaAll;
-	protected MatrixOKT[] OmegaAll;
-
 	protected TruncatedNormalRandomGenerator tnrg;
 	protected Random rg;
+
 	// parametri configurabili
 	protected int nFactors; // topics
 	protected double alpha; // observation noise (precision)
@@ -79,12 +131,15 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 	protected double gamma1; // prior number of active elements
 	protected double gamma2; // prior number of non-active elements
 	protected int nTrials; // cicli di Gibbs
-
 	protected int maxEpoch;
-
 	protected int epochHistorySize; // numero di epoch da prendere in
 	// considerazione
+	protected double pairPercent; // rapporto di coppie da prendere in
+	// considerazione per i confronti
+	protected int minComparisons; // minimo numero di confronti di items per
+	// item e per utente
 	protected long startInferenceTime;
+
 	// Hyper parameters
 	private MatrixOKT muTheta, muOmega;
 	private MatrixOKT sigmaThetaInv, sigmaOmegaInv;
@@ -94,7 +149,10 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 	private int ni0_theta, ni0_omega;
 
 	// support
-	private HashMap<Integer, int[]> itemsPerUser;
+	private HashMap<Integer, HashSet<Integer>>[] pairwiseComparisons;
+	private HashMap<Integer, int[]> neighborsPerUser;
+	private HashMap<Integer, int[]> usersPerItem;
+	private HashMap<Integer, LinkedList<Integer>> Y;
 
 	public PairwiseRankingInferencer(final Settings settings) {
 		nFactors = settings.getInt("nTopics", 5);
@@ -105,6 +163,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		nTrials = settings.getInt("nTrials", 2);
 		maxEpoch = settings.getInt("maxEpoch", 20);
 		epochHistorySize = settings.getInt("epochHistorySize", 10);
+		pairPercent = settings.getReal("pairPercent", 0.1);
+		minComparisons = settings.getInt("minComparisons", 5);
 
 		final String xFile = settings.getString("xFile");
 		final String yuFile = settings.getString("yuFile");
@@ -117,9 +177,123 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		rg = new Random(seed);
 	}
 
-	private double computeLogLikelihood(int epoch) {
+	@SuppressWarnings("all")
+	private double computeAllInOneLogLikelihood_Alternative(int epoch) {
+		final NormalDistribution nd = new NormalDistribution();
 
-		// XXX mean and std?
+		final int limit = min(epoch, ThetaAll.length);
+		final HashMap<Integer, HashMap<Integer, Double>>[] z_uvk = new HashMap[limit];
+
+		System.out.println("Computing log-likelihood...");
+		double oldPercent = 0;
+
+		double log_Pr_ep = 0;
+		double log_Pr_rp = 0;
+
+		// Observed links & items
+		for (int u = 0; u < nUsers; ++u) {
+			final double percent = (double) u / nUsers;
+
+			if (percent >= oldPercent + 0.1) {
+				System.out.println("\tlog-likelihood: " + padd(percent * 50, 1)
+						+ "%");
+				oldPercent = percent;
+			}
+
+			// Links
+			final int[] neighbors = neighborsPerUser.get(u);
+
+			for (int l = -sortedSearch(neighbors, u) - 1, n = neighbors.length; l < n; ++l) {
+				final int v = neighbors[l];
+				double cumulative_z_uv = 0;
+
+				for (int k = 0; k < limit; ++k) {
+					final MatrixOKT thetaUT = ThetaAll[k].rows(u);
+					final MatrixOKT thetaVT = OmegaAll[k].rows(v);
+
+					// Anche senza trasposta il dot() funziona lo stesso
+					final double phi = nd.cumulativeProbability(thetaVT
+							.dot(thetaUT));
+
+					cumulative_z_uv += phi;
+				}
+
+				log_Pr_ep += Math.log(cumulative_z_uv) - Math.log(limit);
+			}
+
+			// Items
+			for (final Map.Entry<Integer, HashSet<Integer>> e : pairwiseComparisons[u]
+					.entrySet()) {
+
+				final int itemI = e.getKey();
+
+				for (final int itemJ : e.getValue()) {
+					double cumulative_w_uij = 0;
+
+					for (int k = 0; k < limit; ++k) {
+						final MatrixOKT omegaI = OmegaAll[k].rows(itemI);
+						final MatrixOKT deltaOmegaT = omegaI.sub(OmegaAll[k]
+								.rows(itemJ));
+						final MatrixOKT thetaUT = ThetaAll[k].rows(u);
+
+						// Anche senza trasposta il dot() funziona lo stesso
+						final double phi = nd.cumulativeProbability(deltaOmegaT
+								.dot(thetaUT));
+
+						cumulative_w_uij += phi;
+					}
+
+					log_Pr_rp += 2 * (Math.log(cumulative_w_uij) - Math
+							.log(limit));
+				}
+			}
+		}
+
+		// Negative links: we are assuming that all the selected unknown
+		// links are negative XXX richiedi conferma a Beppe
+		final Indices[] unknownIndices = unknownLinks
+				.find(0, MatrixOKT.GREATER);
+		final int n = unknownIndices[0].count();
+
+		oldPercent = 0;
+
+		for (int j = 0; j < n; j++) {
+			final double percent = (double) j / n;
+
+			if (percent >= oldPercent + 0.1) {
+				System.out.println("\tlog-likelihood: "
+						+ padd(percent * 50 + 50, 1) + "%");
+				oldPercent = percent;
+			}
+
+			final int u = unknownIndices[0].get(j);
+			final int v = unknownIndices[1].get(j);
+
+			if (v <= u)
+				continue;
+
+			double cumulative_z_uv = 0;
+
+			for (int k = 0; k < limit; ++k) {
+				final MatrixOKT thetaUT = ThetaAll[k].rows(u);
+				final MatrixOKT thetaVT = OmegaAll[k].rows(v);
+
+				// Anche senza trasposta il dot() funziona lo stesso
+				final double phi = nd.cumulativeProbability(thetaVT
+						.dot(thetaUT));
+
+				cumulative_z_uv += phi;
+			}
+
+			log_Pr_ep += Math.log(1 - cumulative_z_uv / limit);
+		}
+
+		System.out.println("\tlog-likelihood: 100.0% complete");
+
+		return log_Pr_ep + log_Pr_rp;
+	}
+
+	private double computeIncrementalLogLikelihood(int epoch) {
 		final NormalDistribution nd = new NormalDistribution();
 
 		final MatrixOKT theta_k = ThetaAll[epoch];
@@ -128,154 +302,91 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		double log_Pr_ep = 0;
 		double log_Pr_rp = 0;
 
+		System.out.println("Computing log-likelihood...");
+		double oldPercent = 0;
+
 		// Observed links & items
 		for (int u = 0; u < nUsers; ++u) {
-			final Indices userIndex = socialNetwork.findColumnIndices(0, u,
-					MatrixOKT.NOT);
+			final double percent = (double) u / nUsers;
 
-			final MatrixOKT thetaU = theta_k.rows(u).transpose(true);
+			if (percent >= oldPercent + 0.1) {
+				System.out.println("\tlog-likelihood: " + padd(percent * 50, 1)
+						+ "%");
+				oldPercent = percent;
+			}
+
+			final MatrixOKT thetaUT = theta_k.rows(u);
 
 			// Links
-			for (final int v : userIndex.toArray()) {
-				if (v <= u)
-					continue;
+			final int[] neighbors = neighborsPerUser.get(u);
 
-				// XXX rows() resituisce una matrice nuova???
+			for (int l = -sortedSearch(neighbors, u) - 1, n = neighbors.length; l < n; ++l) {
+				final int v = neighbors[l];
+
 				final MatrixOKT thetaVT = theta_k.rows(v);
 
-				final double z_uv = thetaVT.dot(thetaU);
+				// Anche senza trasposta il dot() funziona lo stesso
+				final double z_uv = thetaVT.dot(thetaUT);
 				final double phi = nd.cumulativeProbability(z_uv);
 
 				log_Pr_ep += Math.log(phi);
 			}
 
 			// Items
-			final Indices negativeIndex = Y.findColumnIndices(0, u,
-					MatrixOKT.GREATER);
+			for (final Map.Entry<Integer, HashSet<Integer>> e : pairwiseComparisons[u]
+					.entrySet()) {
 
-			final int[] negativeIndexToArray = negativeIndex.toArray();
-			final int n = negativeIndexToArray.length;
+				final int itemI = e.getKey();
+				final MatrixOKT omegaI = omega_k.rows(itemI);
 
-			for (int i = 0; i < n; ++i)
-				for (int j = i + 1; j < n; ++j) {
+				for (final int itemJ : e.getValue()) {
+					final MatrixOKT deltaOmegaT = omegaI.sub(omega_k
+							.rows(itemJ));
 
-					int itemI = negativeIndexToArray[i];
-					int itemJ = negativeIndexToArray[j];
-
-					if (itemI > itemJ) {
-						final int tmp = itemI;
-						itemI = itemJ;
-						itemJ = tmp;
-					}
-
-					final MatrixOKT deltaOmegaT = omega_k.rows(itemI).sub(
-							omega_k.rows(itemJ));
-
-					final double w_uij = deltaOmegaT.dot(thetaU);
+					// Anche senza trasposta il dot() funziona lo stesso
+					final double w_uij = deltaOmegaT.dot(thetaUT);
 					final double phi = nd.cumulativeProbability(w_uij);
 
 					log_Pr_rp += 2 * Math.log(phi);
 				}
+			}
 		}
+
+		oldPercent = 0;
+		int iter = 0;
+		final int maxIter = Y.size();
 
 		// Negative links
-		final Indices[] unknownIndices = Y.find(0, MatrixOKT.GREATER);
-		final int n = unknownIndices[0].count();
+		for (final Map.Entry<Integer, LinkedList<Integer>> e : Y.entrySet()) {
+			final double percent = (double) iter / maxIter;
+			++iter;
 
-		for (int j = 0; j < n; j++) {
-			final int u = unknownIndices[0].get(j);
-			final int v = unknownIndices[1].get(j);
-
-			if (v <= u)
-				continue;
-
-			final MatrixOKT thetaU = theta_k.rows(u).transpose(true);
-			final MatrixOKT thetaVT = theta_k.rows(v);
-
-			final double z_uv = thetaVT.dot(thetaU);
-			final double phi = nd.cumulativeProbability(z_uv);
-
-			log_Pr_ep += Math.log(1 - phi);
-		}
-
-		return log_Pr_ep + log_Pr_rp;
-	}
-
-	@SuppressWarnings("unchecked")
-	private double computeLogLikelihood_Alternative(int epoch) {
-
-		// XXX mean and std?
-		final NormalDistribution nd = new NormalDistribution();
-
-		final int limit = min(epoch, ThetaAll.length);
-		final HashMap<Integer, HashMap<Integer, Double>>[] z_uvk = new HashMap[limit];
-
-		for (int k = 0; k < limit; ++k) {
-			final MatrixOKT theta_k = ThetaAll[k];
-			final MatrixOKT omega_k = OmegaAll[k];
-
-			z_uvk[k] = new HashMap<Integer, HashMap<Integer, Double>>(nUsers);
-
-			final double log_Pr_ep = 0;
-			final double log_Pr_rp = 0;
-
-			// Observed links & items
-			for (int u = 0; u < nUsers; ++u) {
-				final Indices userIndex = socialNetwork.findColumnIndices(0, u,
-						MatrixOKT.NOT);
-
-				final HashMap<Integer, Double> neighbors = new HashMap<Integer, Double>(
-						userIndex.count());
-				z_uvk[k].put(u, neighbors);
-
-				final MatrixOKT thetaU = theta_k.rows(u).transpose(true);
-
-				// Links
-				for (final int v : userIndex.toArray()) {
-					if (v <= u)
-						continue;
-
-					final MatrixOKT thetaVT = theta_k.rows(v);
-
-					final double prod = thetaVT.dot(thetaU);
-					final double phi = nd.cumulativeProbability(prod);
-					neighbors.put(v, phi);
-				}
+			if (percent >= oldPercent + 0.1) {
+				System.out.println("\tlog-likelihood: "
+						+ padd(percent * 50 + 50, 1) + "%");
+				oldPercent = percent;
 			}
 
-			// Negative links: we are assuming that all the selected unknown
-			// links are negative XXX richiedi conferma a Beppe
-			final Indices[] unknownIndices = unknownLinks.find(0,
-					MatrixOKT.GREATER);
-			final int n = unknownIndices[0].count();
+			final int u = e.getKey();
+			final MatrixOKT thetaUT = theta_k.rows(u);
 
-			for (int j = 0; j < n; j++) {
-				final int u = unknownIndices[0].get(j);
-				final int v = unknownIndices[1].get(j);
-
+			for (final int v : e.getValue()) {
 				if (v <= u)
 					continue;
 
-				HashMap<Integer, Double> neighbors = z_uvk[k].get(u);
-
-				if (neighbors == null) {
-					neighbors = new HashMap<Integer, Double>();
-					z_uvk[k].put(u, neighbors);
-				}
-
-				final MatrixOKT thetaU = theta_k.rows(u).transpose(true);
 				final MatrixOKT thetaVT = theta_k.rows(v);
 
-				final double z_uv = thetaVT.dot(thetaU);
+				// Anche senza trasposta il dot() funziona lo stesso
+				final double z_uv = thetaVT.dot(thetaUT);
 				final double phi = nd.cumulativeProbability(z_uv);
 
-				neighbors.put(v, phi);
-
-				// TODO
+				log_Pr_ep += Math.log(1 - phi);
 			}
 		}
 
-		return 0;
+		System.out.println("\tlog-likelihood: 100.0% complete");
+
+		return log_Pr_ep + log_Pr_rp;
 	}
 
 	private void hyperSample() {
@@ -296,29 +407,25 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 	private void initializeHyperParams() {
 
-		// parameters of Inv-Whishart distribution for Theta (see paper for
-		// details)
+		// parameters of Inv-Whishart distribution for Theta
 		W0_theta = factory.eye(nFactors);
 		beta0_theta = 2;
 		ni0_theta = nFactors;
 
-		// XXX � riga o colonna? Deve essere colonna
 		mu0_theta = factory.zeros(nFactors, 1);
 
-		// parameters of Inv-Whishart distribution for Omega (see paper for
-		// details)
+		// parameters of Inv-Whishart distribution for Omega
 		W0_omega = factory.eye(nFactors);
 		beta0_omega = 2;
 		ni0_omega = nFactors;
 
-		// XXX � riga o colonna? Deve essere colonna
 		mu0_omega = factory.zeros(nFactors, 1);
 	}
 
 	private void initializeParams() {
 		Theta = factory.randn(nUsers, nFactors).mulMe(0.1);
 		Omega = factory.randn(nItems, nFactors).mulMe(0.1);
-		Y = factory.sparse(nUsers, nUsers);
+		Y = new HashMap<Integer, LinkedList<Integer>>(nUsers);
 
 		ThetaAll = new MatrixOKT[epochHistorySize];
 		OmegaAll = new MatrixOKT[epochHistorySize];
@@ -328,6 +435,113 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 		for (int u = 0; u < nUsers; ++u)
 			Zr[u] = factory.sparse(nItems, nItems);
+	}
+
+	@SuppressWarnings("unchecked")
+	private void initializeSupportParams() {
+		System.out.println("\tLoading item pairs for comparisons...");
+
+		pairwiseComparisons = new HashMap[nUsers];
+
+		final int[] copy = new int[nItems];
+
+		double oldPercent = 0;
+
+		for (int u = 0; u < nUsers; ++u) {
+			final double percent = (double) u / nUsers;
+
+			if (percent >= oldPercent + 0.1) {
+				System.out.println("\t\tLoading: " + padd(percent * 100, 1)
+						+ "%");
+				oldPercent = percent;
+			}
+
+			final int[] items = preferenceMatrix.findColumnIndices(0, u,
+					MatrixOKT.GREATER).toArray();
+
+			pairwiseComparisons[u] = new HashMap<Integer, HashSet<Integer>>(
+					items.length);
+
+			System.arraycopy(items, 0, copy, 0, items.length);
+
+			final int lowerbound = min(items.length, minComparisons);
+			int n = (int) Math.ceil(items.length * pairPercent);
+
+			if (n < lowerbound)
+				n = lowerbound;
+
+			for (final int i : items) {
+				if (n > lowerbound)
+					shuffle(copy, items.length, rg);
+
+				for (int index = 0; index < n; ++index) {
+					if (i == copy[index])
+						continue;
+
+					int min = i;
+					int max = copy[index];
+
+					if (min > max) {
+						min = max;
+						max = i;
+					}
+
+					HashSet<Integer> comparisons = pairwiseComparisons[u]
+							.get(min);
+
+					if (comparisons == null) {
+						comparisons = new HashSet<Integer>(n);
+						pairwiseComparisons[u].put(min, comparisons);
+					}
+
+					comparisons.add(max);
+				}
+			}
+		}
+
+		System.out.println("\t\tLoading: 100.0% complete");
+
+		System.out.println("\tLoading neighbors per user...");
+
+		neighborsPerUser = new HashMap<Integer, int[]>(nUsers);
+		oldPercent = 0;
+
+		for (int u = 0; u < nUsers; ++u) {
+			final double percent = (double) u / nUsers;
+
+			if (percent >= oldPercent + 0.1) {
+				System.out.println("\t\tLoading: " + padd(percent * 100, 1)
+						+ "%");
+				oldPercent = percent;
+			}
+
+			neighborsPerUser.put(u,
+					socialNetwork.findColumnIndices(0, u, MatrixOKT.NOT)
+					.toArray());
+		}
+
+		System.out.println("\t\tLoading: 100.0% complete");
+
+		System.out.println("\tLoading users per item...");
+
+		usersPerItem = new HashMap<Integer, int[]>(nUsers);
+		oldPercent = 0;
+
+		for (int i = 0; i < nItems; ++i) {
+			final double percent = (double) i / nItems;
+
+			if (percent >= oldPercent + 0.1) {
+				System.out.println("\t\tLoading: " + padd(percent * 100, 1)
+						+ "%");
+				oldPercent = percent;
+			}
+
+			usersPerItem.put(i,
+					preferenceMatrix.findRowIndices(0, i, MatrixOKT.GREATER)
+					.toArray());
+		}
+
+		System.out.println("\t\tLoading: 100.0% complete");
 	}
 
 	private void logNextStep(final int epoch) {
@@ -354,23 +568,22 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			factory = BuildMatrixFactoryOKT
 					.getInstance(BuildMatrixFactoryOKT.UJMP);
 
-		initializeHyperParams();
-		initializeParams();
-
-		log("Avvio generazione modello: users(%d), items(%d), feature(%d)",
-				nUsers, nItems, nFactors);
+		log("Generating model: users(%d), items(%d), features(%d)", nUsers,
+				nItems, nFactors);
 
 		startInferenceTime = System.currentTimeMillis();
 
-		double llk = 0;
+		initializeHyperParams();
+		initializeParams();
+
+		long time = System.currentTimeMillis();
+		System.out.println("Building support parameters...");
+		initializeSupportParams();
+		System.out.println("... done. Elapsed time: "
+				+ (System.currentTimeMillis() - time));
+
+		double cumulativeLogLikelihood = 0;
 		int k = 0;
-
-		itemsPerUser = new HashMap<Integer, int[]>(nUsers);
-
-		for (int u = 0; u < nUsers; ++u)
-			itemsPerUser.put(u,
-					preferenceMatrix.findColumnIndices(0, u, MatrixOKT.GREATER)
-							.toArray());
 
 		for (int epoch = 0; epoch < maxEpoch; epoch++) {
 			logNextStep(epoch);
@@ -383,8 +596,6 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			for (int gibbs = 0; gibbs < nTrials; gibbs++) {
 				System.out.println("Gibbs' iteration: " + gibbs + " over "
 						+ nTrials);
-
-				long time;
 
 				System.out.println("Sampling Y");
 				time = System.currentTimeMillis();
@@ -400,13 +611,13 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 				System.out.println("Sampling Zr");
 				time = System.currentTimeMillis();
-				// samplingZr();
+				samplingZr();
 				System.out.println("Elapsed time: "
 						+ (System.currentTimeMillis() - time));
 
 				System.out.println("Sampling Theta");
 				time = System.currentTimeMillis();
-				// samplingTheta();
+				samplingTheta();
 				System.out.println("Elapsed time: "
 						+ (System.currentTimeMillis() - time));
 
@@ -423,16 +634,14 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			OmegaAll[pos] = Omega.getCopy();
 
 			if (epoch % 10 == 0) {
-				llk += computeLogLikelihood(pos) * k;
-				k = k + 1;
-				llk /= k;
-				log("LogLike al passo %d:\t%lf", epoch, llk);
+				cumulativeLogLikelihood += computeIncrementalLogLikelihood(pos);
+				log("LogLike al passo %d:\t%lf", epoch, cumulativeLogLikelihood
+						/ ++k);
 			}
 		}
 
-		final double time = (System.currentTimeMillis() - startInferenceTime) / 1000d;
 		log("\nGenerazione modello completata: " + "tempo richiesto %s",
-				timeToString(time));
+				timeToString((System.currentTimeMillis() - startInferenceTime) / 100.0));
 
 		return new PairwiseRankingModel(ThetaAll, OmegaAll, index);
 	}
@@ -489,43 +698,33 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 				oldPercent = percent;
 			}
 
-			// restituisce in userIndex gli indici di riga per i quali gli
-			// elementi della colonna i hanno un valore > 0:
-			// tutti gli utenti che hanno espresso un rating > 0 per l'item i
-			final Indices userIndex = preferenceMatrix.findRowIndices(0, i,
-					MatrixOKT.GREATER);
-
 			sigmaSummation.reset();
 			sigmaSummation.add(sigmaOmegaInv);
 
 			muSummation.reset();
 			muSummation.add(sigmaOmegaInvMulMuOmega);
 
-			for (final int u : userIndex.toArray()) {
+			for (final int u : usersPerItem.get(i)) {
 				final MatrixOKT thetaUT = Theta.rows(u);
 				final MatrixOKT thetaU = thetaUT.transpose(true);
 				final MatrixOKT thetaUSq = thetaU.mul(thetaUT);
 
-				// Find u's items
-				final int[] itemsOfU = itemsPerUser.get(u);
+				final HashSet<Integer> comparisonsOfUI = pairwiseComparisons[u]
+						.get(i);
 
-				// XXX ottimizzato se ordinato
-				for (final int j : itemsOfU) {
-					if (j <= i)
-						continue;
+				if (comparisonsOfUI != null) {
+					for (final int j : comparisonsOfUI) {
+						muSummation.add(thetaUSq.mul(Omega.rows(j).transpose(
+								true)));
+						muSummation.add(thetaU.mul(Zr[u].get(i, j)));
+					}
 
-					muSummation
-					.add(thetaUSq.mul(Omega.rows(j).transpose(true)));
-					muSummation.add(thetaU.mul(Zr[u].get(i, j)));
+					sigmaSummation.add(thetaUSq.mulMe(comparisonsOfUI.size()));
 				}
-
-				sigmaSummation.add(thetaUSq.mulMe(itemsOfU.length));
 			}
 
 			final MatrixOKT sigmaStarOmegaInv = sigmaSummation.getResult();
-
 			final MatrixOKT sigmaStarOmega = sigmaStarOmegaInv.inverse();
-
 			final MatrixOKT muStarOmega = sigmaStarOmega.mul(muSummation
 					.getResult());
 
@@ -562,76 +761,46 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			muSummation.reset();
 			muSummation.add(sigmaThetaInvMulMuTheta);
 
-			final int[] itemIndexToArray = itemsPerUser.get(u);
-			final int n = itemIndexToArray.length;
+			for (final Map.Entry<Integer, HashSet<Integer>> e : pairwiseComparisons[u]
+					.entrySet()) {
 
-			for (int i = 0; i < n; ++i)
-				for (int j = i + 1; j < n; ++j) {
+				final int itemI = e.getKey();
+				final MatrixOKT omegaI = Omega.rows(itemI);
 
-					int itemI = itemIndexToArray[i];
-					int itemJ = itemIndexToArray[j];
-
-					if (itemI > itemJ) {
-						final int tmp = itemI;
-						itemI = itemJ;
-						itemJ = tmp;
-					}
-
-					final MatrixOKT deltaOmegaT = Omega.rows(itemI).sub(
-							Omega.rows(itemJ));
-
-					muSummation.add(deltaOmegaT.mulMe(Zr[u].get(itemI, itemJ)));
+				for (final int itemJ : e.getValue()) {
+					final MatrixOKT deltaOmegaT = omegaI.sub(Omega.rows(itemJ));
 
 					sigmaSummation.add(deltaOmegaT.transpose(true).mul(
 							deltaOmegaT));
+					muSummation.add(deltaOmegaT.mulMe(Zr[u].get(itemI, itemJ)));
 				}
-
-			final Indices userIndex = socialNetwork.findColumnIndices(0, u,
-					MatrixOKT.NOT);
-
-			for (final int v : userIndex.toArray()) {
-				if (v == u)
-					continue;
-
-				// XXX rows() resituisce una matrice nuova???
-				final MatrixOKT thetaVT = Theta.rows(v);
-
-				final double edge = socialNetwork.get(u, v);
-
-				if (edge == EdgeType.DIRECTED_EDGE)
-					muSummation.add(thetaVT.mul(Ze.get(u, v)));
-				else if (edge == EdgeType.INVERSE_EDGE)
-					muSummation.add(thetaVT.mul(Ze.get(v, u)));
-				else if (edge == EdgeType.DOUBLE_EDGE) {
-					muSummation.add(thetaVT.mul(Ze.get(u, v)));
-					muSummation.add(thetaVT.mul(Ze.get(v, u)));
-				}
-
-				sigmaSummation.add(thetaVT.transpose(true).mul(thetaVT));
 			}
 
-			final Indices negativeIndex = Y.findColumnIndices(0, u,
-					MatrixOKT.NOT);
-
-			for (final int v : negativeIndex.toArray()) {
-				if (v == u)
-					continue;
-
+			for (final int v : neighborsPerUser.get(u)) {
 				final MatrixOKT thetaVT = Theta.rows(v);
 
-				final double edge = Y.get(u, v);
-
-				if (edge == EdgeType.DIRECTED_EDGE)
-					muSummation.add(thetaVT.mul(Ze.get(u, v)));
-				else if (edge == EdgeType.INVERSE_EDGE)
-					muSummation.add(thetaVT.mul(Ze.get(v, u)));
-				else if (edge == EdgeType.DOUBLE_EDGE) {
-					muSummation.add(thetaVT.mul(Ze.get(u, v)));
-					muSummation.add(thetaVT.mul(Ze.get(v, u)));
-				}
-
 				sigmaSummation.add(thetaVT.transpose(true).mul(thetaVT));
+
+				if (u < v)
+					muSummation.add(thetaVT.mulMe(Ze.get(u, v)));
+				else
+					muSummation.add(thetaVT.mulMe(Ze.get(v, u)));
 			}
+
+			final LinkedList<Integer> neighbors = Y.get(u);
+
+			if (neighbors != null)
+				for (final int v : neighbors) {
+					final MatrixOKT thetaVT = Theta.rows(v);
+
+					sigmaSummation.add(thetaVT.transpose(true).mul(thetaVT));
+
+					if (u < v)
+						muSummation.add(thetaVT.mulMe(Ze.get(u, v)));
+					else
+						muSummation.add(thetaVT.mulMe(Ze.get(v, u)));
+
+				}
 
 			// found simgaStarTheta
 			// getResult() transposes the matrix. Why? XXX
@@ -662,6 +831,12 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		final int n = unknownIndices[0].count();
 		double oldPercent = 0;
 
+		// Reset Y
+		for (final LinkedList<Integer> list : Y.values())
+			list.clear();
+
+		Y.clear();
+
 		for (int j = 0; j < n; j++) {
 			final double percent = (double) j / n;
 
@@ -674,33 +849,27 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			final int u = unknownIndices[0].get(j);
 			final int v = unknownIndices[1].get(j);
 
-			final double prod = Theta.rows(u)
-					.dot(Theta.rows(v).transpose(true));
+			// Anche senza trasposta il dot() funziona lo stesso
+			final double prod = Theta.rows(u).dot(Theta.rows(v));
 
 			final double eta = Math.log(gamma1 / gamma2);
-			// XXX Controlla che non sia -beta
-			final double prY = factory.sigmoid(beta * prod * prod / 2d + eta);
+
+			// Sigmoid XXX non mi convice il segno, forse è -beta
+			final double prY = 1d / (1d + Math.exp(beta * prod * prod / 2d
+					+ eta));
 
 			// scegliamo se assegnare l'arco o meno a Y_uv nel seguente modo:
-			// generiamo un numero random x tra 0 e 1, se prY e' > x
-			// allora Y_uv avr� un arco altrimenti no
-			final boolean newEdge = rg.nextDouble() < prY;
-			final double oldEdge = Y.get(u, v);
+			// generiamo un numero random x tra 0 e 1, se prY e' > x allora Y_uv
+			// avrà un arco altrimenti no
+			if (rg.nextDouble() < prY) {
+				LinkedList<Integer> list = Y.get(u);
 
-			if (newEdge) {
-				if (oldEdge == EdgeType.NO_EDGE) {
-					Y.set(u, v, EdgeType.DIRECTED_EDGE);
-					Y.set(v, u, EdgeType.INVERSE_EDGE);
-				} else if (oldEdge == EdgeType.INVERSE_EDGE) {
-					Y.set(u, v, EdgeType.DOUBLE_EDGE);
-					Y.set(v, u, EdgeType.DOUBLE_EDGE);
+				if (list == null) {
+					list = new LinkedList<Integer>();
+					Y.put(u, list);
 				}
-			} else if (oldEdge == EdgeType.DIRECTED_EDGE) {
-				Y.set(u, v, EdgeType.NO_EDGE);
-				Y.set(v, u, EdgeType.NO_EDGE);
-			} else if (oldEdge == EdgeType.DOUBLE_EDGE) {
-				Y.set(u, v, EdgeType.INVERSE_EDGE);
-				Y.set(v, u, EdgeType.DIRECTED_EDGE);
+
+				list.add(v);
 			}
 		}
 
@@ -719,29 +888,28 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 				oldPercent = percent;
 			}
 
-			// XXX cambiando la codifica EdgeType potrebbe non funzionare
-			final Indices userIndex = socialNetwork.findColumnIndices(0, u,
-					MatrixOKT.GREATER);
 			final MatrixOKT thetaUT = Theta.rows(u);
 
-			for (final int v : userIndex.toArray()) {
-				if (v == u)
-					continue;
+			for (final int v : neighborsPerUser.get(u)) {
 
-				final double avg = thetaUT.dot(Theta.rows(v).transpose(true));
-				Ze.set(u, v, tnrg.next(0, Double.POSITIVE_INFINITY, avg, 1));
+				// Anche senza trasposta il dot() funziona lo stesso
+				final double avg = Theta.rows(v).dot(thetaUT);
+
+				if (u < v)
+					Ze.set(u, v, tnrg.next(0, Double.POSITIVE_INFINITY, avg, 1));
+				else
+					Ze.set(v, u, tnrg.next(0, Double.POSITIVE_INFINITY, avg, 1));
 			}
 
-			// XXX cambiando la codifica EdgeType potrebbe non funzionare
-			final Indices negativeIndex = Y.findColumnIndices(0, u,
-					MatrixOKT.GREATER);
+			for (final int v : Y.get(u)) {
 
-			for (final int v : negativeIndex.toArray()) {
-				if (v == u)
-					continue;
+				// Anche senza trasposta il dot() funziona lo stesso
+				final double avg = Theta.rows(v).dot(thetaUT);
 
-				final double avg = thetaUT.dot(Theta.rows(v).transpose(true));
-				Ze.set(u, v, tnrg.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
+				if (u < v)
+					Ze.set(u, v, tnrg.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
+				else
+					Ze.set(v, u, tnrg.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
 			}
 		}
 
@@ -749,13 +917,6 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 	}
 
 	protected void samplingZr() {
-		int kk = 0;
-		double cumTime = 0;
-		int elements = 0;
-
-		final UJMPMatrixOKT ujmpOmega = (UJMPMatrixOKT) Omega;
-		ujmpOmega.createSingletons();
-
 		double oldPercent = 0;
 
 		for (int u = 0; u < nUsers; ++u) {
@@ -765,27 +926,20 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 				System.out.println("\tSampling: " + padd(percent * 100, 1)
 						+ "%");
 				oldPercent = percent;
+				System.gc();
 			}
 
 			final MatrixOKT thetaU = Theta.rows(u).transpose(true);
 
 			// Find u's items
-			final Indices itemsOfU = preferenceMatrix.findColumnIndices(0, u,
-					MatrixOKT.GREATER);
+			for (final Map.Entry<Integer, HashSet<Integer>> e : pairwiseComparisons[u]
+					.entrySet()) {
 
-			// This array is sorted
-			final int[] itemsOfUArray = itemsOfU.toArray();
+				final int itemI = e.getKey();
+				final MatrixOKT omegaIT = Omega.rows(itemI);
 
-			// XXX collo di bottiglia
-			final long time = System.currentTimeMillis();
-			for (int i = 0, n = itemsOfUArray.length, m = n - 1; i < m; ++i) {
-				final int itemI = itemsOfUArray[i];
-				final MatrixOKT omegaIT = ujmpOmega.rowS1(itemI);
-
-				for (int j = i + 1; j < n; ++j) {
-					final int itemJ = itemsOfUArray[j];
-
-					final double avg = omegaIT.sub(ujmpOmega.rowS2(itemJ)).dot(
+				for (final int itemJ : e.getValue()) {
+					final double avg = omegaIT.sub(Omega.rows(itemJ)).dot(
 							thetaU);
 
 					Zr[u].set(
@@ -795,20 +949,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 							.get(u, itemJ) ? tnrg.next(0,
 									Double.POSITIVE_INFINITY, avg, 1) : tnrg
 									.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
-
-					++elements;
 				}
-			}
-
-			++kk;
-			cumTime += System.currentTimeMillis() - time;
-			final int div = 100;
-
-			if (kk % div == 0) {
-				System.out.println("### " + kk + " ==> " + cumTime / div
-						+ " ||| elements: " + elements);
-				cumTime = 0;
-				System.gc();
 			}
 		}
 
