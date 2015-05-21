@@ -191,13 +191,13 @@ public final class BlasMatrixOKT implements MatrixOKT {
 				tmp = matrix.getRow(row).le(target);
 			else
 				tmp = matrix.getRow(row).lt(target);
-		} else if ((policy & EQUAL) == EQUAL) {
-			if ((policy & NOT) == NOT)
-				tmp = matrix.getRow(row).ne(target);
-			else
-				tmp = matrix.getRow(row).eq(target);
-		} else
+		} else if ((policy & EQUAL) == EQUAL)
+			tmp = matrix.getRow(row).eq(target);
+		else if ((policy & NOT) == NOT)
+			tmp = matrix.getRow(row).ne(target);
+		else
 			return new BlasIndices(new int[0]);
+
 		return new BlasIndices(tmp.findIndices());
 	}
 
@@ -214,13 +214,13 @@ public final class BlasMatrixOKT implements MatrixOKT {
 				indices = matrix.le(target).findIndices();
 			else
 				indices = matrix.lt(target).findIndices();
-		} else if ((policy & EQUAL) == EQUAL) {
-			if ((policy & NOT) == NOT)
-				indices = matrix.ne(target).findIndices();
-			else
-				indices = matrix.eq(target).findIndices();
-		} else
+		} else if ((policy & EQUAL) == EQUAL)
+			indices = matrix.eq(target).findIndices();
+		else if ((policy & NOT) == NOT)
+			indices = matrix.ne(target).findIndices();
+		else
 			return new BlasIndices(new int[0]);
+
 		return new BlasIndices(indices);
 	}
 
@@ -237,12 +237,11 @@ public final class BlasMatrixOKT implements MatrixOKT {
 				tmp = matrix.getColumn(column).le(target);
 			else
 				tmp = matrix.getColumn(column).lt(target);
-		} else if ((policy & EQUAL) == EQUAL) {
-			if ((policy & NOT) == NOT)
-				tmp = matrix.getColumn(column).ne(target);
-			else
-				tmp = matrix.getColumn(column).eq(target);
-		} else
+		} else if ((policy & EQUAL) == EQUAL)
+			tmp = matrix.getColumn(column).eq(target);
+		else if ((policy & NOT) == NOT)
+			tmp = matrix.getColumn(column).ne(target);
+		else
 			return new BlasIndices(new int[0]);
 		return new BlasIndices(tmp.findIndices());
 	}

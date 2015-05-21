@@ -387,8 +387,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 				log_Pr_ep += Math.log(phi);
 
 				// XXX
-				// if (Double.isInfinite(log_Pr_ep) || Double.isNaN(log_Pr_ep))
-				// System.out.println("#");
+				if (Double.isInfinite(log_Pr_ep) || Double.isNaN(log_Pr_ep))
+					System.out.println("#");
 			}
 
 			// Items
@@ -449,8 +449,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 				log_Pr_ep += Math.log(1 - phi);
 
 				// XXX
-				// if (Double.isInfinite(log_Pr_ep) || Double.isNaN(log_Pr_ep))
-				// System.out.println("#");
+				if (Double.isInfinite(log_Pr_ep) || Double.isNaN(log_Pr_ep))
+					System.out.println("#");
 			}
 		}
 
@@ -596,7 +596,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 			neighborsPerUser.put(u,
 					socialNetwork.findColumnIndices(0, u, MatrixOKT.NOT)
-					.toArray());
+							.toArray());
 		}
 
 		if (debug)
@@ -621,7 +621,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 			usersPerItem.put(i,
 					preferenceMatrix.findRowIndices(0, i, MatrixOKT.GREATER)
-					.toArray());
+							.toArray());
 		}
 
 		if (debug)
@@ -650,10 +650,10 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 		if (nUsers < 240)
 			factory = BuildMatrixFactoryOKT
-					.getInstance(BuildMatrixFactoryOKT.BLAS);
+			.getInstance(BuildMatrixFactoryOKT.BLAS);
 		else
 			factory = BuildMatrixFactoryOKT
-					.getInstance(BuildMatrixFactoryOKT.UJMP);
+			.getInstance(BuildMatrixFactoryOKT.UJMP);
 
 		System.out.println("Generating model: users (" + nUsers + "), items ("
 				+ nItems + "), features (" + nFactors + ")");
@@ -738,8 +738,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		}
 
 		System.out
-				.println("Model Genereation complete. Elapsed time: "
-						+ timeToString((System.currentTimeMillis() - startInferenceTime) / 100.0));
+		.println("Model Genereation complete. Elapsed time: "
+				+ timeToString((System.currentTimeMillis() - startInferenceTime) / 100.0));
 
 		return new PairwiseRankingModel(ThetaAll, OmegaAll, index);
 	}
@@ -1015,16 +1015,21 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 					Ze.set(v, u, tnrg.next(0, Double.POSITIVE_INFINITY, avg, 1));
 			}
 
-			for (final int v : Y.get(u)) {
+			final LinkedList<Integer> list = Y.get(u);
 
-				// Anche senza trasposta il dot() funziona lo stesso
-				final double avg = Theta.rows(v).dot(thetaUT);
+			if (list != null)
+				for (final int v : list) {
 
-				if (u < v)
-					Ze.set(u, v, tnrg.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
-				else
-					Ze.set(v, u, tnrg.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
-			}
+					// Anche senza trasposta il dot() funziona lo stesso
+					final double avg = Theta.rows(v).dot(thetaUT);
+
+					if (u < v)
+						Ze.set(u, v,
+								tnrg.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
+					else
+						Ze.set(v, u,
+								tnrg.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
+				}
 		}
 
 		if (debug)
@@ -1062,7 +1067,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 							itemI,
 							itemJ,
 							preferenceMatrix.get(u, itemI) > preferenceMatrix
-							.get(u, itemJ) ? tnrg.next(0,
+									.get(u, itemJ) ? tnrg.next(0,
 									Double.POSITIVE_INFINITY, avg, 1) : tnrg
 									.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
 				}

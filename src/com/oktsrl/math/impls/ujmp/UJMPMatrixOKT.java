@@ -323,10 +323,10 @@ public class UJMPMatrixOKT extends AbstractMatrixOKT {
 			else
 				return value -> value < target;
 		} else if ((policy & EQUAL) == EQUAL)
-			if ((policy & NOT) == NOT)
+			return value -> value == target;
+		else if ((policy & NOT) == NOT)
 				return value -> value != target;
-			else
-				return value -> value == target;
+
 		return null;
 	}
 
