@@ -41,10 +41,6 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		return -(low + 1); // key not found
 	}
 
-	private static void log(final String message, final Object... params) {
-		System.out.println(String.format(message, params));
-	}
-
 	private static int min(int i, int j) {
 		if (i < j)
 			return i;
@@ -93,6 +89,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 	private static String timeToString(double time) {
 		String measure = "secondi";
+
 		if (time > 60d) {
 			measure = "minuti";
 			time /= 60d;
@@ -100,6 +97,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			measure = "ore";
 			time /= 3600d;
 		}
+
 		return String.format("%.2f %s", time, measure);
 	}
 
@@ -154,6 +152,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 	private HashMap<Integer, int[]> usersPerItem;
 	private HashMap<Integer, LinkedList<Integer>> Y;
 
+	private final boolean debug;
+
 	public PairwiseRankingInferencer(final Settings settings) {
 		nFactors = settings.getInt("nTopics", 5);
 		alpha = settings.getReal("alpha", 2d);
@@ -165,6 +165,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		epochHistorySize = settings.getInt("epochHistorySize", 10);
 		pairPercent = settings.getReal("pairPercent", 0.1);
 		minComparisons = settings.getInt("minComparisons", 5);
+		debug = settings.getString("debug", "true").equalsIgnoreCase("true");
 
 		final String xFile = settings.getString("xFile");
 		final String yuFile = settings.getString("yuFile");
@@ -184,7 +185,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		final int limit = min(epoch, ThetaAll.length);
 		final HashMap<Integer, HashMap<Integer, Double>>[] z_uvk = new HashMap[limit];
 
-		System.out.println("Computing log-likelihood...");
+		if (debug)
+			System.out.println("Computing log-likelihood...");
 		double oldPercent = 0;
 
 		double log_Pr_ep = 0;
@@ -192,18 +194,21 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 		// Observed links & items
 		for (int u = 0; u < nUsers; ++u) {
-			final double percent = (double) u / nUsers;
+			if (debug) {
+				final double percent = (double) u / nUsers;
 
-			if (percent >= oldPercent + 0.1) {
-				System.out.println("\tlog-likelihood: " + padd(percent * 50, 1)
-						+ "%");
-				oldPercent = percent;
+				if (percent >= oldPercent + 0.1) {
+					System.out.println("\tlog-likelihood: "
+							+ padd(percent * 50, 1) + "%");
+					oldPercent = percent;
+				}
 			}
 
 			// Links
 			final int[] neighbors = neighborsPerUser.get(u);
+			final int pos = sortedSearch(neighbors, u);
 
-			for (int l = -sortedSearch(neighbors, u) - 1, n = neighbors.length; l < n; ++l) {
+			for (int l = pos >= 0 ? pos : -pos - 1, n = neighbors.length; l < n; ++l) {
 				final int v = neighbors[l];
 				double cumulative_z_uv = 0;
 
@@ -258,12 +263,14 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		oldPercent = 0;
 
 		for (int j = 0; j < n; j++) {
-			final double percent = (double) j / n;
+			if (debug) {
+				final double percent = (double) j / n;
 
-			if (percent >= oldPercent + 0.1) {
-				System.out.println("\tlog-likelihood: "
-						+ padd(percent * 50 + 50, 1) + "%");
-				oldPercent = percent;
+				if (percent >= oldPercent + 0.1) {
+					System.out.println("\tlog-likelihood: "
+							+ padd(percent * 50 + 50, 1) + "%");
+					oldPercent = percent;
+				}
 			}
 
 			final int u = unknownIndices[0].get(j);
@@ -288,7 +295,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			log_Pr_ep += Math.log(1 - cumulative_z_uv / limit);
 		}
 
-		System.out.println("\tlog-likelihood: 100.0% complete");
+		if (debug)
+			System.out.println("\tlog-likelihood: 100.0% complete");
 
 		return log_Pr_ep + log_Pr_rp;
 	}
@@ -302,25 +310,30 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		double log_Pr_ep = 0;
 		double log_Pr_rp = 0;
 
-		System.out.println("Computing log-likelihood...");
+		if (debug)
+			System.out.println("Computing log-likelihood...");
+
 		double oldPercent = 0;
 
 		// Observed links & items
 		for (int u = 0; u < nUsers; ++u) {
-			final double percent = (double) u / nUsers;
+			if (debug) {
+				final double percent = (double) u / nUsers;
 
-			if (percent >= oldPercent + 0.1) {
-				System.out.println("\tlog-likelihood: " + padd(percent * 50, 1)
-						+ "%");
-				oldPercent = percent;
+				if (percent >= oldPercent + 0.1) {
+					System.out.println("\tlog-likelihood: "
+							+ padd(percent * 50, 1) + "%");
+					oldPercent = percent;
+				}
 			}
 
 			final MatrixOKT thetaUT = theta_k.rows(u);
 
 			// Links
 			final int[] neighbors = neighborsPerUser.get(u);
+			final int pos = sortedSearch(neighbors, u);
 
-			for (int l = -sortedSearch(neighbors, u) - 1, n = neighbors.length; l < n; ++l) {
+			for (int l = pos >= 0 ? pos + 1 : -pos - 1, n = neighbors.length; l < n; ++l) {
 				final int v = neighbors[l];
 
 				final MatrixOKT thetaVT = theta_k.rows(v);
@@ -330,6 +343,10 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 				final double phi = nd.cumulativeProbability(z_uv);
 
 				log_Pr_ep += Math.log(phi);
+
+				// XXX
+				// if (Double.isInfinite(log_Pr_ep) || Double.isNaN(log_Pr_ep))
+				// System.out.println("#");
 			}
 
 			// Items
@@ -348,6 +365,11 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 					final double phi = nd.cumulativeProbability(w_uij);
 
 					log_Pr_rp += 2 * Math.log(phi);
+
+					// XXX qui
+					// if (Double.isInfinite(log_Pr_rp) ||
+					// Double.isNaN(log_Pr_rp))
+					// System.out.println("#");
 				}
 			}
 		}
@@ -358,13 +380,15 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 		// Negative links
 		for (final Map.Entry<Integer, LinkedList<Integer>> e : Y.entrySet()) {
-			final double percent = (double) iter / maxIter;
-			++iter;
+			if (debug) {
+				final double percent = (double) iter / maxIter;
+				++iter;
 
-			if (percent >= oldPercent + 0.1) {
-				System.out.println("\tlog-likelihood: "
-						+ padd(percent * 50 + 50, 1) + "%");
-				oldPercent = percent;
+				if (percent >= oldPercent + 0.1) {
+					System.out.println("\tlog-likelihood: "
+							+ padd(percent * 50 + 50, 1) + "%");
+					oldPercent = percent;
+				}
 			}
 
 			final int u = e.getKey();
@@ -381,10 +405,15 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 				final double phi = nd.cumulativeProbability(z_uv);
 
 				log_Pr_ep += Math.log(1 - phi);
+
+				// XXX
+				// if (Double.isInfinite(log_Pr_ep) || Double.isNaN(log_Pr_ep))
+				// System.out.println("#");
 			}
 		}
 
-		System.out.println("\tlog-likelihood: 100.0% complete");
+		if (debug)
+			System.out.println("\tlog-likelihood: 100.0% complete");
 
 		return log_Pr_ep + log_Pr_rp;
 	}
@@ -439,7 +468,9 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 	@SuppressWarnings("unchecked")
 	private void initializeSupportParams() {
-		System.out.println("\tLoading item pairs for comparisons...");
+
+		if (debug)
+			System.out.println("\tLoading item pairs for comparisons...");
 
 		pairwiseComparisons = new HashMap[nUsers];
 
@@ -448,12 +479,14 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		double oldPercent = 0;
 
 		for (int u = 0; u < nUsers; ++u) {
-			final double percent = (double) u / nUsers;
+			if (debug) {
+				final double percent = (double) u / nUsers;
 
-			if (percent >= oldPercent + 0.1) {
-				System.out.println("\t\tLoading: " + padd(percent * 100, 1)
-						+ "%");
-				oldPercent = percent;
+				if (percent >= oldPercent + 0.1) {
+					System.out.println("\t\tLoading: " + padd(percent * 100, 1)
+							+ "%");
+					oldPercent = percent;
+				}
 			}
 
 			final int[] items = preferenceMatrix.findColumnIndices(0, u,
@@ -498,21 +531,24 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 				}
 			}
 		}
+		if (debug)
+			System.out.println("\t\tLoading: 100.0% complete");
 
-		System.out.println("\t\tLoading: 100.0% complete");
-
-		System.out.println("\tLoading neighbors per user...");
+		if (debug)
+			System.out.println("\tLoading neighbors per user...");
 
 		neighborsPerUser = new HashMap<Integer, int[]>(nUsers);
 		oldPercent = 0;
 
 		for (int u = 0; u < nUsers; ++u) {
-			final double percent = (double) u / nUsers;
+			if (debug) {
+				final double percent = (double) u / nUsers;
 
-			if (percent >= oldPercent + 0.1) {
-				System.out.println("\t\tLoading: " + padd(percent * 100, 1)
-						+ "%");
-				oldPercent = percent;
+				if (percent >= oldPercent + 0.1) {
+					System.out.println("\t\tLoading: " + padd(percent * 100, 1)
+							+ "%");
+					oldPercent = percent;
+				}
 			}
 
 			neighborsPerUser.put(u,
@@ -520,20 +556,24 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 					.toArray());
 		}
 
-		System.out.println("\t\tLoading: 100.0% complete");
+		if (debug)
+			System.out.println("\t\tLoading: 100.0% complete");
 
-		System.out.println("\tLoading users per item...");
+		if (debug)
+			System.out.println("\tLoading users per item...");
 
 		usersPerItem = new HashMap<Integer, int[]>(nUsers);
 		oldPercent = 0;
 
 		for (int i = 0; i < nItems; ++i) {
-			final double percent = (double) i / nItems;
+			if (debug) {
+				final double percent = (double) i / nItems;
 
-			if (percent >= oldPercent + 0.1) {
-				System.out.println("\t\tLoading: " + padd(percent * 100, 1)
-						+ "%");
-				oldPercent = percent;
+				if (percent >= oldPercent + 0.1) {
+					System.out.println("\t\tLoading: " + padd(percent * 100, 1)
+							+ "%");
+					oldPercent = percent;
+				}
 			}
 
 			usersPerItem.put(i,
@@ -541,18 +581,20 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 					.toArray());
 		}
 
-		System.out.println("\t\tLoading: 100.0% complete");
+		if (debug)
+			System.out.println("\t\tLoading: 100.0% complete");
 	}
 
 	private void logNextStep(final int epoch) {
 		if (epoch == 0)
-			log("Step: %d di %d, tempo rimanente %s", epoch + 1, maxEpoch,
-					"in valutazione");
+			System.out.println("Step " + (epoch + 1) + " over " + maxEpoch
+					+ ", remaining time: estimation in progress");
 		else {
 			final double remaningTime = (System.currentTimeMillis() - startInferenceTime)
 					/ epoch / 1000d * (maxEpoch - epoch);
-			log("Step: %d di %d, tempo rimanente %s", epoch + 1, maxEpoch,
-					timeToString(remaningTime));
+
+			System.out.println("Step " + (epoch + 1) + " over " + maxEpoch
+					+ ", remaining time: " + timeToString(remaningTime));
 		}
 	}
 
@@ -568,8 +610,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			factory = BuildMatrixFactoryOKT
 					.getInstance(BuildMatrixFactoryOKT.UJMP);
 
-		log("Generating model: users(%d), items(%d), features(%d)", nUsers,
-				nItems, nFactors);
+		System.out.println("Generating model: users (" + nUsers + "), items ("
+				+ nItems + "), features (" + nFactors + ")");
 
 		startInferenceTime = System.currentTimeMillis();
 
@@ -583,7 +625,6 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 				+ (System.currentTimeMillis() - time));
 
 		double cumulativeLogLikelihood = 0;
-		int k = 0;
 
 		for (int epoch = 0; epoch < maxEpoch; epoch++) {
 			logNextStep(epoch);
@@ -593,39 +634,49 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 			// Start doing Gibbs updates over user and movie feature vectors
 			// given hyperparams. dimensione di R_train: n_users x n_items
-			for (int gibbs = 0; gibbs < nTrials; gibbs++) {
-				System.out.println("Gibbs' iteration: " + gibbs + " over "
-						+ nTrials);
+			for (int gibbs = 0; gibbs < nTrials; ++gibbs) {
+				System.out.println("Gibbs' iteration: " + (gibbs + 1)
+						+ " over " + nTrials + "\t####################");
 
-				System.out.println("Sampling Y");
+				if (debug)
+					System.out.println("Sampling Y");
 				time = System.currentTimeMillis();
 				samplingY();
-				System.out.println("Elapsed time: "
-						+ (System.currentTimeMillis() - time));
+				if (debug)
+					System.out.println("Required time: "
+							+ (System.currentTimeMillis() - time));
 
-				System.out.println("Sampling Ze");
+				if (debug)
+					System.out.println("Sampling Ze");
 				time = System.currentTimeMillis();
 				samplingZe();
-				System.out.println("Elapsed time: "
-						+ (System.currentTimeMillis() - time));
+				if (debug)
+					System.out.println("Required time: "
+							+ (System.currentTimeMillis() - time));
 
-				System.out.println("Sampling Zr");
+				if (debug)
+					System.out.println("Sampling Zr");
 				time = System.currentTimeMillis();
 				samplingZr();
-				System.out.println("Elapsed time: "
-						+ (System.currentTimeMillis() - time));
+				if (debug)
+					System.out.println("Required time: "
+							+ (System.currentTimeMillis() - time));
 
-				System.out.println("Sampling Theta");
+				if (debug)
+					System.out.println("Sampling Theta");
 				time = System.currentTimeMillis();
 				samplingTheta();
-				System.out.println("Elapsed time: "
-						+ (System.currentTimeMillis() - time));
+				if (debug)
+					System.out.println("Required time: "
+							+ (System.currentTimeMillis() - time));
 
-				System.out.println("Sampling Omega");
+				if (debug)
+					System.out.println("Sampling Omega");
 				time = System.currentTimeMillis();
 				samplingOmega();
-				System.out.println("Elapsed time: "
-						+ (System.currentTimeMillis() - time));
+				if (debug)
+					System.out.println("Required time: "
+							+ (System.currentTimeMillis() - time));
 			}
 
 			final int pos = epoch % epochHistorySize;
@@ -633,15 +684,17 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			ThetaAll[pos] = Theta.getCopy();
 			OmegaAll[pos] = Omega.getCopy();
 
-			if (epoch % 10 == 0) {
-				cumulativeLogLikelihood += computeIncrementalLogLikelihood(pos);
-				log("LogLike al passo %d:\t%lf", epoch, cumulativeLogLikelihood
-						/ ++k);
-			}
+			final double localLogLikelihood = computeIncrementalLogLikelihood(pos);
+			cumulativeLogLikelihood += localLogLikelihood;
+			System.out.println("************* Epoch: " + (epoch + 1) + " over "
+					+ maxEpoch + ", local log-likelihood: "
+					+ localLogLikelihood + ", cumulative log-likelihood"
+					+ cumulativeLogLikelihood / (epoch + 1));
 		}
 
-		log("\nGenerazione modello completata: " + "tempo richiesto %s",
-				timeToString((System.currentTimeMillis() - startInferenceTime) / 100.0));
+		System.out
+				.println("Model Genereation complete. Elapsed time: "
+						+ timeToString((System.currentTimeMillis() - startInferenceTime) / 100.0));
 
 		return new PairwiseRankingModel(ThetaAll, OmegaAll, index);
 	}
@@ -690,12 +743,14 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		double oldPercent = 0;
 
 		for (int i = 0; i < nItems; ++i) {
-			final double percent = (double) i / nItems;
+			if (debug) {
+				final double percent = (double) i / nItems;
 
-			if (percent >= oldPercent + 0.1) {
-				System.out.println("\tSampling: " + padd(percent * 100, 1)
-						+ "%");
-				oldPercent = percent;
+				if (percent >= oldPercent + 0.1) {
+					System.out.println("\tSampling: " + padd(percent * 100, 1)
+							+ "%");
+					oldPercent = percent;
+				}
 			}
 
 			sigmaSummation.reset();
@@ -736,7 +791,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 					lam.mul(factory.randn(nFactors, 1)).sumMe(muStarOmega));
 		}
 
-		System.out.println("\tSampling: 100.0% complete");
+		if (debug)
+			System.out.println("\tSampling: 100.0% complete");
 	}
 
 	protected void samplingTheta() {
@@ -747,12 +803,14 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		double oldPercent = 0;
 
 		for (int u = 0; u < nUsers; ++u) {
-			final double percent = (double) u / nUsers;
+			if (debug) {
+				final double percent = (double) u / nUsers;
 
-			if (percent >= oldPercent + 0.1) {
-				System.out.println("\tSampling: " + padd(percent * 100, 1)
-						+ "%");
-				oldPercent = percent;
+				if (percent >= oldPercent + 0.1) {
+					System.out.println("\tSampling: " + padd(percent * 100, 1)
+							+ "%");
+					oldPercent = percent;
+				}
 			}
 
 			sigmaSummation.reset();
@@ -777,6 +835,9 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			}
 
 			for (final int v : neighborsPerUser.get(u)) {
+				if (u == v)
+					continue;
+
 				final MatrixOKT thetaVT = Theta.rows(v);
 
 				sigmaSummation.add(thetaVT.transpose(true).mul(thetaVT));
@@ -819,7 +880,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 					lam.mul(factory.randn(nFactors, 1)).sumMe(muStarTheta));
 		}
 
-		System.out.println("\tSampling: 100.0% complete");
+		if (debug)
+			System.out.println("\tSampling: 100.0% complete");
 	}
 
 	private void samplingY() {
@@ -838,12 +900,14 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		Y.clear();
 
 		for (int j = 0; j < n; j++) {
-			final double percent = (double) j / n;
+			if (debug) {
+				final double percent = (double) j / n;
 
-			if (percent >= oldPercent + 0.1) {
-				System.out.println("\tSampling: " + padd(percent * 100, 1)
-						+ "%");
-				oldPercent = percent;
+				if (percent >= oldPercent + 0.1) {
+					System.out.println("\tSampling: " + padd(percent * 100, 1)
+							+ "%");
+					oldPercent = percent;
+				}
 			}
 
 			final int u = unknownIndices[0].get(j);
@@ -873,24 +937,29 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			}
 		}
 
-		System.out.println("\tSampling: 100.0% complete");
+		if (debug)
+			System.out.println("\tSampling: 100.0% complete");
 	}
 
 	private void samplingZe() {
 		double oldPercent = 0;
 
 		for (int u = 0; u < nUsers; ++u) {
-			final double percent = (double) u / nUsers;
+			if (debug) {
+				final double percent = (double) u / nUsers;
 
-			if (percent >= oldPercent + 0.1) {
-				System.out.println("\tSampling: " + padd(percent * 100, 1)
-						+ "%");
-				oldPercent = percent;
+				if (percent >= oldPercent + 0.1) {
+					System.out.println("\tSampling: " + padd(percent * 100, 1)
+							+ "%");
+					oldPercent = percent;
+				}
 			}
 
 			final MatrixOKT thetaUT = Theta.rows(u);
 
 			for (final int v : neighborsPerUser.get(u)) {
+				if (u == v)
+					continue;
 
 				// Anche senza trasposta il dot() funziona lo stesso
 				final double avg = Theta.rows(v).dot(thetaUT);
@@ -913,20 +982,22 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			}
 		}
 
-		System.out.println("\tSampling: 100.0% complete");
+		if (debug)
+			System.out.println("\tSampling: 100.0% complete");
 	}
 
 	protected void samplingZr() {
 		double oldPercent = 0;
 
 		for (int u = 0; u < nUsers; ++u) {
-			final double percent = (double) u / nUsers;
+			if (debug) {
+				final double percent = (double) u / nUsers;
 
-			if (percent >= oldPercent + 0.1) {
-				System.out.println("\tSampling: " + padd(percent * 100, 1)
-						+ "%");
-				oldPercent = percent;
-				System.gc();
+				if (percent >= oldPercent + 0.1) {
+					System.out.println("\tSampling: " + padd(percent * 100, 1)
+							+ "%");
+					oldPercent = percent;
+				}
 			}
 
 			final MatrixOKT thetaU = Theta.rows(u).transpose(true);
@@ -953,7 +1024,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			}
 		}
 
-		System.out.println("\tSampling: 100.0% complete");
+		if (debug)
+			System.out.println("\tSampling: 100.0% complete");
 	}
 
 	public void setIndex(BidimensionalIndex index) {
