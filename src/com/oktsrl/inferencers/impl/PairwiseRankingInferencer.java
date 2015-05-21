@@ -6,8 +6,6 @@ import java.util.LinkedList;
 import java.util.Map;
 import java.util.Random;
 
-import org.apache.commons.math3.distribution.NormalDistribution;
-
 import com.oktsrl.Model;
 import com.oktsrl.inferencers.BayesianInferencer;
 import com.oktsrl.math.BuildMatrixFactoryOKT;
@@ -39,6 +37,53 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 				return mid; // key found
 		}
 		return -(low + 1); // key not found
+	}
+
+	public static double cumulativeNormalDistribution(double x) {
+		final double XAbs = Math.abs(x);
+		double Cumnorm;
+
+		if (XAbs > 37)
+			Cumnorm = 0;
+		else {
+			final double Exponential = Math.exp(-(XAbs * XAbs) / 2.0);
+			double build;
+
+			if (XAbs < 7.07106781186547) {
+				build = 3.52624965998911E-02 * XAbs + 0.700383064443688;
+				build = build * XAbs + 6.37396220353165;
+				build = build * XAbs + 33.912866078383;
+				build = build * XAbs + 112.079291497871;
+				build = build * XAbs + 221.213596169931;
+				build = build * XAbs + 220.206867912376;
+
+				Cumnorm = Exponential * build;
+
+				build = 8.83883476483184E-02 * XAbs + 1.75566716318264;
+				build = build * XAbs + 16.064177579207;
+				build = build * XAbs + 86.7807322029461;
+				build = build * XAbs + 296.564248779674;
+				build = build * XAbs + 637.333633378831;
+				build = build * XAbs + 793.826512519948;
+				build = build * XAbs + 440.413735824752;
+
+				Cumnorm = Cumnorm / build;
+			} else {
+				build = XAbs + 0.65;
+				build = XAbs + 4 / build;
+				build = XAbs + 3 / build;
+				build = XAbs + 2 / build;
+				build = XAbs + 1 / build;
+
+				Cumnorm = Exponential / build / 2.506628274631;
+			}
+
+		}
+
+		if (x > 0)
+			Cumnorm = 1 - Cumnorm;
+
+		return Cumnorm;
 	}
 
 	private static int min(int i, int j) {
@@ -137,6 +182,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 	protected int minComparisons; // minimo numero di confronti di items per
 	// item e per utente
 	protected long startInferenceTime;
+	protected long startGibbsSampling;
 
 	// Hyper parameters
 	private MatrixOKT muTheta, muOmega;
@@ -180,8 +226,6 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 	@SuppressWarnings("all")
 	private double computeAllInOneLogLikelihood_Alternative(int epoch) {
-		final NormalDistribution nd = new NormalDistribution();
-
 		final int limit = min(epoch, ThetaAll.length);
 		final HashMap<Integer, HashMap<Integer, Double>>[] z_uvk = new HashMap[limit];
 
@@ -217,7 +261,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 					final MatrixOKT thetaVT = OmegaAll[k].rows(v);
 
 					// Anche senza trasposta il dot() funziona lo stesso
-					final double phi = nd.cumulativeProbability(thetaVT
+					final double phi = cumulativeNormalDistribution(thetaVT
 							.dot(thetaUT));
 
 					cumulative_z_uv += phi;
@@ -242,7 +286,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 						final MatrixOKT thetaUT = ThetaAll[k].rows(u);
 
 						// Anche senza trasposta il dot() funziona lo stesso
-						final double phi = nd.cumulativeProbability(deltaOmegaT
+						final double phi = cumulativeNormalDistribution(deltaOmegaT
 								.dot(thetaUT));
 
 						cumulative_w_uij += phi;
@@ -286,7 +330,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 				final MatrixOKT thetaVT = OmegaAll[k].rows(v);
 
 				// Anche senza trasposta il dot() funziona lo stesso
-				final double phi = nd.cumulativeProbability(thetaVT
+				final double phi = cumulativeNormalDistribution(thetaVT
 						.dot(thetaUT));
 
 				cumulative_z_uv += phi;
@@ -302,8 +346,6 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 	}
 
 	private double computeIncrementalLogLikelihood(int epoch) {
-		final NormalDistribution nd = new NormalDistribution();
-
 		final MatrixOKT theta_k = ThetaAll[epoch];
 		final MatrixOKT omega_k = OmegaAll[epoch];
 
@@ -340,7 +382,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 				// Anche senza trasposta il dot() funziona lo stesso
 				final double z_uv = thetaVT.dot(thetaUT);
-				final double phi = nd.cumulativeProbability(z_uv);
+				final double phi = cumulativeNormalDistribution(z_uv);
 
 				log_Pr_ep += Math.log(phi);
 
@@ -362,7 +404,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 					// Anche senza trasposta il dot() funziona lo stesso
 					final double w_uij = deltaOmegaT.dot(thetaUT);
-					final double phi = nd.cumulativeProbability(w_uij);
+					final double phi = cumulativeNormalDistribution(w_uij);
 
 					log_Pr_rp += 2 * Math.log(phi);
 
@@ -402,7 +444,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 				// Anche senza trasposta il dot() funziona lo stesso
 				final double z_uv = thetaVT.dot(thetaUT);
-				final double phi = nd.cumulativeProbability(z_uv);
+				final double phi = cumulativeNormalDistribution(z_uv);
 
 				log_Pr_ep += Math.log(1 - phi);
 
@@ -588,10 +630,11 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 	private void logNextStep(final int epoch) {
 		if (epoch == 0)
-			System.out.println("Step " + (epoch + 1) + " over " + maxEpoch
+			System.out.println("Epoch " + (epoch + 1) + " over " + maxEpoch
 					+ ", remaining time: estimation in progress");
 		else {
-			final double remaningTime = (System.currentTimeMillis() - startInferenceTime)
+			// FIXME la stima del tempo atteso è sbagliata
+			final double remaningTime = (System.currentTimeMillis() - startGibbsSampling)
 					/ epoch / 1000d * (maxEpoch - epoch);
 
 			System.out.println("Step " + (epoch + 1) + " over " + maxEpoch
@@ -601,6 +644,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 	@Override
 	public Model runInference() {
+		startInferenceTime = System.currentTimeMillis();
+
 		nUsers = socialNetwork.rowsCount();
 		nItems = preferenceMatrix.columnsCount();
 
@@ -614,8 +659,6 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		System.out.println("Generating model: users (" + nUsers + "), items ("
 				+ nItems + "), features (" + nFactors + ")");
 
-		startInferenceTime = System.currentTimeMillis();
-
 		initializeHyperParams();
 		initializeParams();
 
@@ -626,6 +669,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 				+ (System.currentTimeMillis() - time));
 
 		double cumulativeLogLikelihood = 0;
+
+		startGibbsSampling = System.currentTimeMillis();
 
 		for (int epoch = 0; epoch < maxEpoch; epoch++) {
 			logNextStep(epoch);
