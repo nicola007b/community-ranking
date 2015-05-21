@@ -44,7 +44,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		double Cumnorm;
 
 		if (XAbs > 37)
-			Cumnorm = 0;
+			Cumnorm = Double.MIN_VALUE;
 		else {
 			final double Exponential = Math.exp(-(XAbs * XAbs) / 2.0);
 			double build;
@@ -596,7 +596,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 			neighborsPerUser.put(u,
 					socialNetwork.findColumnIndices(0, u, MatrixOKT.NOT)
-							.toArray());
+					.toArray());
 		}
 
 		if (debug)
@@ -621,7 +621,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 			usersPerItem.put(i,
 					preferenceMatrix.findRowIndices(0, i, MatrixOKT.GREATER)
-							.toArray());
+					.toArray());
 		}
 
 		if (debug)
@@ -650,10 +650,10 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 		if (nUsers < 240)
 			factory = BuildMatrixFactoryOKT
-			.getInstance(BuildMatrixFactoryOKT.BLAS);
+					.getInstance(BuildMatrixFactoryOKT.BLAS);
 		else
 			factory = BuildMatrixFactoryOKT
-			.getInstance(BuildMatrixFactoryOKT.UJMP);
+					.getInstance(BuildMatrixFactoryOKT.UJMP);
 
 		System.out.println("Generating model: users (" + nUsers + "), items ("
 				+ nItems + "), features (" + nFactors + ")");
@@ -738,8 +738,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		}
 
 		System.out
-		.println("Model Genereation complete. Elapsed time: "
-				+ timeToString((System.currentTimeMillis() - startInferenceTime) / 100.0));
+				.println("Model Genereation complete. Elapsed time: "
+						+ timeToString((System.currentTimeMillis() - startInferenceTime) / 100.0));
 
 		return new PairwiseRankingModel(ThetaAll, OmegaAll, index);
 	}
@@ -1067,7 +1067,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 							itemI,
 							itemJ,
 							preferenceMatrix.get(u, itemI) > preferenceMatrix
-									.get(u, itemJ) ? tnrg.next(0,
+							.get(u, itemJ) ? tnrg.next(0,
 									Double.POSITIVE_INFINITY, avg, 1) : tnrg
 									.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
 				}
