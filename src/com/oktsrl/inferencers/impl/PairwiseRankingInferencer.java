@@ -1007,7 +1007,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 			// Sigmoid XXX non mi convice il segno, forse è -beta
 			final double prY = 1d / (1d + Math.exp(beta * prod * prod / 2d
-					+ eta));
+					- eta));
 
 			// scegliamo se assegnare l'arco o meno a Y_uv nel seguente modo:
 			// generiamo un numero random x tra 0 e 1, se prY e' > x allora Y_uv
