@@ -132,20 +132,6 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			return binarySearch(v, key);
 	}
 
-	private static String timeToString(double time) {
-		String measure = "secondi";
-
-		if (time > 60d) {
-			measure = "minuti";
-			time /= 60d;
-		} else if (time > 3600d) {
-			measure = "ore";
-			time /= 3600d;
-		}
-
-		return String.format("%.2f %s", time, measure);
-	}
-
 	protected int nUsers;
 	protected int nItems;
 
@@ -639,7 +625,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 			neighborsPerUser.put(u,
 					socialNetwork.findColumnIndices(0, u, MatrixOKT.NOT)
-					.toArray());
+							.toArray());
 		}
 
 		if (debug)
@@ -664,7 +650,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 			usersPerItem.put(i,
 					preferenceMatrix.findRowIndices(0, i, MatrixOKT.GREATER)
-					.toArray());
+							.toArray());
 		}
 
 		if (debug)
@@ -679,7 +665,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			final double remaningTime = epochTimeMean * (maxEpoch - epoch);
 
 			System.out.println("Step " + (epoch + 1) + " over " + maxEpoch
-					+ ", remaining time: " + timeToString(remaningTime));
+					+ ", remaining time: " + remaningTime);
 		}
 	}
 
@@ -692,10 +678,10 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 		if (nUsers < 240)
 			factory = BuildMatrixFactoryOKT
-					.getInstance(BuildMatrixFactoryOKT.BLAS);
+			.getInstance(BuildMatrixFactoryOKT.BLAS);
 		else
 			factory = BuildMatrixFactoryOKT
-					.getInstance(BuildMatrixFactoryOKT.UJMP);
+			.getInstance(BuildMatrixFactoryOKT.UJMP);
 
 		System.out.println("Generating model: users (" + nUsers + "), items ("
 				+ nItems + "), features (" + nFactors + ")");
@@ -794,9 +780,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			epochTimeMean = (epochTimeMean * epoch + epochTime) / (epoch + 1);
 		}
 
-		System.out
-				.println("Model Genereation complete. Elapsed time: "
-						+ timeToString((System.currentTimeMillis() - startInferenceTime) / 100.0));
+		System.out.println("Model Genereation complete. Elapsed time: "
+				+ (System.currentTimeMillis() - startInferenceTime));
 
 		return new PairwiseRankingModel(ThetaAll, OmegaAll, index);
 	}
@@ -1124,7 +1109,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 							itemI,
 							itemJ,
 							preferenceMatrix.get(u, itemI) > preferenceMatrix
-							.get(u, itemJ) ? tnrg.next(0,
+									.get(u, itemJ) ? tnrg.next(0,
 									Double.POSITIVE_INFINITY, avg, 1) : tnrg
 									.next(Double.NEGATIVE_INFINITY, 0, avg, 1));
 				}
