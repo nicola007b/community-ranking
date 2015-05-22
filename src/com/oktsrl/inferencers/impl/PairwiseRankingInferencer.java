@@ -175,6 +175,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 	protected double gamma2; // prior number of non-active elements
 	protected int nTrials; // cicli di Gibbs
 	protected int maxEpoch;
+	protected int maxBurnIn;
 	protected int epochHistorySize; // numero di epoch da prendere in
 	// considerazione
 	protected double pairPercent; // rapporto di coppie da prendere in
@@ -208,6 +209,7 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		gamma2 = settings.getReal("gamma2", 2d);
 		nTrials = settings.getInt("nTrials", 2);
 		maxEpoch = settings.getInt("maxEpoch", 20);
+		maxBurnIn = settings.getInt("maxBurnIn", 20);
 		epochHistorySize = settings.getInt("epochHistorySize", 10);
 		pairPercent = settings.getReal("pairPercent", 0.1);
 		minComparisons = settings.getInt("minComparisons", 5);
@@ -222,6 +224,35 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 		tnrg = new TruncatedNormalRandomGenerator(xFile, yuFile, ncellFile,
 				seed);
 		rg = new Random(seed);
+	}
+
+	private void burnIn() {
+		double oldPercent = 0;
+
+		for (int epoch = 0; epoch < maxBurnIn; epoch++) {
+			if (debug) {
+				final double percent = (double) epoch / maxBurnIn;
+
+				if (percent >= oldPercent + 0.1) {
+					System.out.println("\tburnIn: " + padd(percent * 100, 1)
+							+ "%");
+					oldPercent = percent;
+				}
+			}
+
+			hyperSample();
+
+			for (int gibbs = 0; gibbs < nTrials; ++gibbs) {
+				samplingY();
+				samplingZe();
+				samplingZr();
+				samplingTheta();
+				samplingOmega();
+			}
+		}
+
+		if (debug)
+			System.out.println("\tburnIn: 100.0% complete");
 	}
 
 	@SuppressWarnings("all")
@@ -387,8 +418,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 				log_Pr_ep += Math.log(phi);
 
 				// XXX
-				if (Double.isInfinite(log_Pr_ep) || Double.isNaN(log_Pr_ep))
-					System.out.println("#");
+				// if (Double.isInfinite(log_Pr_ep) || Double.isNaN(log_Pr_ep))
+				// System.out.println("#");
 			}
 
 			// Items
@@ -449,8 +480,8 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 				log_Pr_ep += Math.log(1 - phi);
 
 				// XXX
-				if (Double.isInfinite(log_Pr_ep) || Double.isNaN(log_Pr_ep))
-					System.out.println("#");
+				// if (Double.isInfinite(log_Pr_ep) || Double.isNaN(log_Pr_ep))
+				// System.out.println("#");
 			}
 		}
 
@@ -553,23 +584,35 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 					if (i == copy[index])
 						continue;
 
-					int min = i;
-					int max = copy[index];
+					int preferred;
+					int notPreferred;
 
-					if (min > max) {
-						min = max;
-						max = i;
+					final double diff = preferenceMatrix.get(u, i)
+							- preferenceMatrix.get(u, copy[index]);
+
+					if (diff > 0) {
+						preferred = i;
+						notPreferred = copy[index];
+					} else if (diff < 0) {
+						preferred = copy[index];
+						notPreferred = i;
+					} else if (i < copy[index]) {
+						preferred = i;
+						notPreferred = copy[index];
+					} else {
+						preferred = copy[index];
+						notPreferred = i;
 					}
 
 					HashSet<Integer> comparisons = pairwiseComparisons[u]
-							.get(min);
+							.get(preferred);
 
 					if (comparisons == null) {
 						comparisons = new HashSet<Integer>(n);
-						pairwiseComparisons[u].put(min, comparisons);
+						pairwiseComparisons[u].put(preferred, comparisons);
 					}
 
-					comparisons.add(max);
+					comparisons.add(notPreferred);
 				}
 			}
 		}
@@ -628,13 +671,12 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			System.out.println("\t\tLoading: 100.0% complete");
 	}
 
-	private void logNextStep(final int epoch) {
+	private void logNextStep(final int epoch, long epochTimeMean) {
 		if (epoch == 0)
 			System.out.println("Epoch " + (epoch + 1) + " over " + maxEpoch
 					+ ", remaining time: estimation in progress");
 		else {
-			final double remaningTime = (System.currentTimeMillis() - startGibbsSampling)
-					/ epoch / 1000d * (maxEpoch - epoch);
+			final double remaningTime = epochTimeMean * (maxEpoch - epoch);
 
 			System.out.println("Step " + (epoch + 1) + " over " + maxEpoch
 					+ ", remaining time: " + timeToString(remaningTime));
@@ -671,8 +713,19 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 
 		startGibbsSampling = System.currentTimeMillis();
 
-		for (int epoch = 0; epoch < maxEpoch; epoch++) {
-			logNextStep(epoch);
+		// burnIn
+		System.out.println("BurnIn...");
+		time = System.currentTimeMillis();
+		burnIn();
+		System.out.println("... done. Elapsed time: "
+				+ (System.currentTimeMillis() - time));
+
+		long epochTimeMean = 0;
+
+		for (int epoch = 0; epoch < maxEpoch; ++epoch) {
+			logNextStep(epoch, epochTimeMean);
+
+			final long epochTime = System.currentTimeMillis();
 
 			// Sample hyperparams
 			hyperSample();
@@ -733,8 +786,12 @@ public class PairwiseRankingInferencer implements BayesianInferencer {
 			cumulativeLogLikelihood += localLogLikelihood;
 			System.out.println("************* Epoch: " + (epoch + 1) + " over "
 					+ maxEpoch + ", local log-likelihood: "
-					+ localLogLikelihood + ", cumulative log-likelihood"
-					+ cumulativeLogLikelihood / (epoch + 1));
+					+ localLogLikelihood + ", cumulative log-likelihood: "
+					+ cumulativeLogLikelihood / (epoch + 1)
+					+ ", all-in-one log-likelihood: "
+					+ computeAllInOneLogLikelihood_Alternative(epoch));
+
+			epochTimeMean = (epochTimeMean * epoch + epochTime) / (epoch + 1);
 		}
 
 		System.out
